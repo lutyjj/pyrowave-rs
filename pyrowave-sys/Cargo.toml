@@ -1,0 +1,14 @@
+[package]
+name = "pyrowave-sys"
+description = "Vendored PyroWave codec (Vulkan compute) built from source, with bindgen bindings over its C API."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+links = "pyrowave"
+
+[build-dependencies]
+cmake = "0.1"
+bindgen = { version = "0.72", features = ["runtime"], default-features = false }

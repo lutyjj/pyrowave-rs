@@ -1,0 +1,79 @@
+Complete queued scaling and release external images on inner-encoder failure.
+
+Reject externally supplied command buffers with acquire/release operations
+before recording any work. Cleanup remains off the successful encoding path.
+
+--- a/pyrowave_c.cpp
++++ b/pyrowave_c.cpp
+@@ -1021,6 +1021,20 @@
+ 	}
+ }
+ 
++static void pyrowave_device_release_images(CommandBuffer &cmd, const pyrowave_gpu_sync_operation *release)
++{
++	if (!release)
++		return;
++	for (size_t i = 0; i < release->num_images; i++)
++	{
++		cmd.release_image_barrier(*release->images[i].image->img,
++		                          VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
++		                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++		                          VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
++		                          release->images[i].queue_family_index);
++	}
++}
++
+ static pyrowave_result
+ pyrowave_encoder_encode_gpu_synchronous_inner(pyrowave_encoder encoder,
+                                               const pyrowave_gpu_sync_operation *acquire,
+@@ -1111,17 +1125,7 @@
+ 		return PYROWAVE_ERROR_INVALID_ARGUMENT;
+ 	}
+ 
+-	if (release)
+-	{
+-		for (size_t i = 0; i < release->num_images; i++)
+-		{
+-			cmd->release_image_barrier(*release->images[i].image->img,
+-									   VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
+-									   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+-									   VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+-									   release->images[i].queue_family_index);
+-		}
+-	}
++	pyrowave_device_release_images(*cmd, release);
+ 
+ 	// NVIDIA really doesn't like it if we write bitstream to cached host.
+ 	// Performance issue since these memory types are mapped coherent on the GPU.
+@@ -1176,6 +1180,9 @@
+ {
+ 	Util::set_thread_logging_interface(&null_logger);
+ 
++	if (encoder->pyro_device->cmd && (acquire || release))
++		return PYROWAVE_ERROR_INVALID_ARGUMENT;
++
+ 	if (scaling_info->intermediate_plane_format != VK_FORMAT_R8_UNORM &&
+ 		scaling_info->intermediate_plane_format != VK_FORMAT_R16_UNORM)
+ 		return PYROWAVE_ERROR_INVALID_ARGUMENT;
+@@ -1335,7 +1342,20 @@
+ 	ViewBuffers buffers = {};
+ 	for (int i = 0; i < 3; i++)
+ 		buffers.planes[i] = &encoder->scaler_planes[i]->get_view();
+-	return pyrowave_encoder_encode_gpu_synchronous_inner(encoder, nullptr, release, buffers, rate_control);
++	auto result = pyrowave_encoder_encode_gpu_synchronous_inner(encoder, nullptr, release, buffers, rate_control);
++	if (result != PYROWAVE_SUCCESS && !encoder->pyro_device->cmd)
++	{
++		// Scaling was queued before the inner encoder could fail. Release the
++		// producer's images and complete that work before their allocation is reused.
++		auto cleanup = device->request_command_buffer(encoder->pyro_device->queue_type);
++		pyrowave_device_release_images(*cleanup, release);
++		device->submit(cleanup);
++		pyrowave_device_signal_semaphore(device, encoder->pyro_device->queue_type, release);
++		Fence completion;
++		device->submit_empty(encoder->pyro_device->queue_type, &completion, nullptr);
++		completion->wait();
++	}
++	return result;
+ }
+ 
+ pyrowave_result

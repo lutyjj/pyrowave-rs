@@ -1,0 +1,115 @@
+Add a DMA-BUF import entry point that consumes its fd on every outcome.
+
+The allocation observer distinguishes failure before import from failure after
+Vulkan consumed the descriptor. The upstream entry point keeps its semantics.
+
+--- a/Granite/vulkan/vulkan_common.hpp
++++ b/Granite/vulkan/vulkan_common.hpp
+@@ -57,6 +57,9 @@
+ 	using NativeHandle = int;
+ 	NativeHandle handle = -1;
+ #endif
++
++	// Optional import observer; set immediately when Vulkan consumes the fd.
++	bool *imported_fd_consumed = nullptr;
+ 
+ 	VkExternalMemoryHandleTypeFlagBits memory_handle_type = get_opaque_memory_handle_type();
+ 	VkExternalSemaphoreHandleTypeFlagBits semaphore_handle_type = get_opaque_semaphore_handle_type();
+--- a/Granite/vulkan/memory_allocator.cpp
++++ b/Granite/vulkan/memory_allocator.cpp
+@@ -768,6 +768,8 @@
+ 	{
+ 		heap.size += size;
+ 		*memory = device_memory;
++		if (external && bool(*external) && external->imported_fd_consumed)
++			*external->imported_fd_consumed = true;
+ 
+ 		if (host_visible)
+ 		{
+@@ -804,6 +806,8 @@
+ 		{
+ 			heap.size += size;
+ 			*memory = device_memory;
++			if (external && bool(*external) && external->imported_fd_consumed)
++				*external->imported_fd_consumed = true;
+ 
+ 			if (host_visible)
+ 			{
+--- a/pyrowave_c.cpp
++++ b/pyrowave_c.cpp
+@@ -11,6 +11,9 @@
+ #include "logging.hpp"
+ #include "slangmosh_scaler.hpp"
+ #include "scaler.hpp"
++#ifndef _WIN32
++#include <unistd.h>
++#endif
+ 
+ using namespace Granite;
+ using namespace Vulkan;
+@@ -556,7 +559,8 @@
+ 	ImageHandle img;
+ };
+ 
+-pyrowave_result pyrowave_image_create(const pyrowave_image_create_info *info, pyrowave_image *out_image)
++static pyrowave_result pyrowave_image_create_internal(
++		const pyrowave_image_create_info *info, pyrowave_image *out_image, bool *fd_consumed)
+ {
+ 	Util::set_thread_logging_interface(&null_logger);
+ 	if (!info->device || !info->image_create_info)
+@@ -583,6 +587,7 @@
+ 	image_create_info.misc = IMAGE_MISC_EXTERNAL_MEMORY_BIT | IMAGE_MISC_NO_DEFAULT_VIEWS_BIT;
+ 	image_create_info.external.handle = (decltype(image_create_info.external.handle))info->external_handle;
+ 	image_create_info.external.memory_handle_type = info->handle_type;
++	image_create_info.external.imported_fd_consumed = fd_consumed;
+ 	image_create_info.pnext = const_cast<void *>(info->image_create_info->pNext);
+ 	image_create_info.layout = ImageLayout::General;
+ 	image_create_info.initial_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+@@ -628,6 +633,30 @@
+ 	*out_image = image;
+ 	return PYROWAVE_SUCCESS;
+ }
++
++pyrowave_result pyrowave_image_create(const pyrowave_image_create_info *info, pyrowave_image *out_image)
++{
++	return pyrowave_image_create_internal(info, out_image, nullptr);
++}
++
++#ifndef _WIN32
++pyrowave_result pyrowave_image_create_owned_fd(const pyrowave_image_create_info *info, pyrowave_image *out_image)
++{
++	if (info->handle_type != VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT)
++	{
++		::close(int(info->external_handle));
++		return PYROWAVE_ERROR_INVALID_ARGUMENT;
++	}
++
++	bool consumed = false;
++	auto result = pyrowave_image_create_internal(info, out_image, &consumed);
++	// Allocation can succeed before binding or mapping fails. Only the allocator
++	// knows whether Vulkan consumed the fd; the final result cannot tell us.
++	if (!consumed)
++		::close(int(info->external_handle));
++	return result;
++}
++#endif
+ 
+ VkImage pyrowave_image_get_handle(pyrowave_image image)
+ {
+--- a/pyrowave.h
++++ b/pyrowave.h
+@@ -330,6 +330,14 @@
+ PYROWAVE_PUBLIC_API pyrowave_result
+ pyrowave_image_create(const pyrowave_image_create_info *info, pyrowave_image *image);
+ 
++#ifndef _WIN32
++// Local Rust ownership extension, for DMA-BUF only. Takes ownership of
++// external_handle on every outcome, including validation and allocation failure.
++// The standard pyrowave_image_create entry point keeps its upstream semantics.
++PYROWAVE_PUBLIC_API pyrowave_result
++pyrowave_image_create_owned_fd(const pyrowave_image_create_info *info, pyrowave_image *image);
++#endif
++
+ PYROWAVE_PUBLIC_API VkImage
+ pyrowave_image_get_handle(pyrowave_image image);
+ 

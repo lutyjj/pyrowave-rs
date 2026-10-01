@@ -1,0 +1,61 @@
+use std::rc::Rc;
+
+use pyrowave_sys as ffi;
+
+use crate::Result;
+use crate::error::check;
+
+/// A private Vulkan device using upstream's default graphics queue.
+///
+/// Clones share ownership. Codecs and images retain the device until they drop.
+/// This type is neither `Send` nor `Sync`: the native device needs external
+/// synchronization, so each device and its resources stay on one thread.
+/// Native calls from separate devices are serialized because the backend uses
+/// process-wide Vulkan dispatch state. Calls through `pyrowave-sys` must also
+/// be externally synchronized with this crate.
+#[derive(Clone)]
+pub struct Device {
+	pub(crate) inner: Rc<DeviceInner>,
+}
+
+pub(crate) struct DeviceInner {
+	pub handle: ffi::pyrowave_device,
+}
+
+impl Device {
+	pub fn new() -> Result<Self> {
+		let mut handle = std::ptr::null_mut();
+		// SAFETY: the output pointer is live for the call.
+		check(
+			crate::device::with_native(|| unsafe { ffi::pyrowave_create_default_device(&mut handle) }),
+			"creating device",
+		)?;
+		Ok(Self {
+			inner: Rc::new(DeviceInner { handle }),
+		})
+	}
+
+	pub(crate) fn handle(&self) -> ffi::pyrowave_device {
+		self.inner.handle
+	}
+
+	#[cfg(all(feature = "dmabuf", target_os = "linux"))]
+	pub(crate) fn same_device(&self, other: &Self) -> bool {
+		Rc::ptr_eq(&self.inner, &other.inner)
+	}
+}
+
+impl Drop for DeviceInner {
+	fn drop(&mut self) {
+		// SAFETY: all codecs and images have released their strong references.
+		crate::device::with_native(|| unsafe { ffi::pyrowave_device_destroy(self.handle) });
+	}
+}
+
+// Device confinement does not protect Volk's process-wide dispatch table when
+// another thread constructs or destroys a separate device.
+pub(crate) fn with_native<T>(call: impl FnOnce() -> T) -> T {
+	static NATIVE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+	let _guard = NATIVE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+	call()
+}

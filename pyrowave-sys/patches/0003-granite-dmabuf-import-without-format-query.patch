@@ -1,0 +1,37 @@
+Allow unadvertised NVIDIA GBM modifiers on the proprietary NVIDIA driver.
+
+All other external-memory format query failures remain fatal. Image creation
+and memory import still validate the demonstrated NVIDIA compatibility path.
+
+--- a/Granite/vulkan/device.cpp
++++ b/Granite/vulkan/device.cpp
+@@ -4319,13 +4319,26 @@
+ 		}
+ 
+ 		props2.pNext = &external_props;
++		// NVIDIA GBM allocates modifiers missing from its Vulkan format query.
++		// Restrict this import fallback to NVIDIA's proprietary driver and
++		// NVIDIA modifiers (DRM modifier vendor 0x03).
++		bool nvidia_dmabuf_import = create_info.external &&
++		                            external_format_info.handleType == VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT &&
++		                            info.tiling == VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT &&
++		                            ext.driver_id == VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
++		                            (modifier_info.drmFormatModifier >> 56) == 0x03;
+ 		if (!get_image_format_properties(info.format, info.imageType, info.tiling,
+ 		                                 info.usage, info.flags,
+ 		                                 &external_format_info, &props2))
+ 		{
+-			LOGE("Image format is not supported for external memory type #%x.\n",
+-			     external_format_info.handleType);
+-			return ImageHandle(nullptr);
++			if (!nvidia_dmabuf_import)
++			{
++				LOGE("Image format is not supported for external memory type #%x.\n",
++				     external_format_info.handleType);
++				return ImageHandle(nullptr);
++			}
++			external_props.externalMemoryProperties.externalMemoryFeatures =
++			    VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT | VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT;
+ 		}
+ 
+ 		bool supports_import = (external_props.externalMemoryProperties.externalMemoryFeatures &

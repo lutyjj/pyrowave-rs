@@ -1,0 +1,6 @@
+[submodule "pyrowave"]
+	path = pyrowave-sys/upstream/pyrowave
+	url = https://github.com/Themaister/pyrowave
+[submodule "Granite"]
+	path = pyrowave-sys/upstream/Granite
+	url = https://github.com/Themaister/Granite

@@ -1,0 +1,49 @@
+Recreate scaler planes when the requested intermediate precision changes.
+
+Allocate all replacement planes before committing them so an allocation
+failure preserves the usable cache.
+
+--- a/pyrowave_c.cpp
++++ b/pyrowave_c.cpp
+@@ -1190,14 +1190,16 @@
+ 	auto *device = encoder->device;
+ 	device->next_frame_context();
+ 
+-	if (!encoder->scaler_planes[0])
+-	{
++	if (!encoder->scaler_planes[0] ||
++	    encoder->scaler_planes[0]->get_format() != scaling_info->intermediate_plane_format)
++	{
++		ImageHandle planes[3];
+ 		auto info = ImageCreateInfo::immutable_2d_image(
+ 			encoder->width, encoder->height, scaling_info->intermediate_plane_format);
+ 		info.initial_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+ 		info.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+ 
+-		encoder->scaler_planes[0] = encoder->device->create_image(info);
++		planes[0] = encoder->device->create_image(info);
+ 
+ 		if (encoder->chroma == ChromaSubsampling::Chroma420)
+ 		{
+@@ -1205,13 +1207,14 @@
+ 			info.height /= 2;
+ 		}
+ 
+-		encoder->scaler_planes[1] = encoder->device->create_image(info);
+-		encoder->scaler_planes[2] = encoder->device->create_image(info);
+-	}
+-
+-	for (auto &plane : encoder->scaler_planes)
+-		if (!plane)
+-			return PYROWAVE_ERROR_OUT_OF_DEVICE_MEMORY;
++		planes[1] = encoder->device->create_image(info);
++		planes[2] = encoder->device->create_image(info);
++		for (auto &plane : planes)
++			if (!plane)
++				return PYROWAVE_ERROR_OUT_OF_DEVICE_MEMORY;
++		for (int i = 0; i < 3; i++)
++			encoder->scaler_planes[i] = std::move(planes[i]);
++	}
+ 
+ 	pyrowave_device_wait_semaphore(device, encoder->pyro_device->queue_type, acquire, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+ 

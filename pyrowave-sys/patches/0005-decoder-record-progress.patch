@@ -1,0 +1,76 @@
+Reject undersized records and truncated GPU payloads before retaining them.
+
+Header progress check adapted from Punktfunk; payload validation added locally.
+Source: https://git.unom.io/unom/punktfunk/src/commit/5bc6ade3afdd47f7013ecda99992d1e62c7e64ce/crates/pyrowave-sys/patches/0008-decoder-reject-zero-length-packet.patch
+License: MIT; see ../THIRD-PARTY-NOTICES.
+
+--- a/pyrowave_decoder.cpp
++++ b/pyrowave_decoder.cpp
+@@ -7,6 +7,7 @@
+ #include "math.hpp"
+ #include "pyrowave_common.hpp"
+ #include <algorithm>
++#include "bitops.hpp"
+ 
+ namespace PyroWave
+ {
+@@ -126,6 +127,36 @@
+ 		memcpy(cmd.update_buffer(*payload_data, 0, required_size), payload_data_cpu.data(), required_size);
+ }
+ 
++static bool validate_payload(const BitstreamHeader *header)
++{
++	const auto *data = reinterpret_cast<const uint8_t *>(header);
++	const size_t size = header->payload_words * sizeof(uint32_t);
++	const unsigned blocks = Util::popcount32(header->ballot);
++	size_t offset = sizeof(*header) + 3 * blocks;
++	if (offset > size)
++		return false;
++
++	unsigned significant = 0;
++	for (unsigned block = 0; block < blocks; block++)
++	{
++		const unsigned control = data[8 + 2 * block] | (unsigned(data[9 + 2 * block]) << 8);
++		const unsigned q_bits = data[8 + 2 * blocks + block] & 15;
++		for (unsigned group = 0; group < 8; group++)
++		{
++			const unsigned planes = q_bits + ((control >> (2 * group)) & 3);
++			if (planes > size - offset)
++				return false;
++			unsigned nonzero = 0;
++			for (unsigned plane = 0; plane < planes; plane++)
++				nonzero |= data[offset++];
++			// The shader treats a zero control word as an empty 8x8 block.
++			if (control != 0)
++				significant += Util::popcount32(nonzero);
++		}
++	}
++	return (significant + 7) / 8 <= size - offset;
++}
++
+ bool Decoder::Impl::decode_packet(const BitstreamHeader *header)
+ {
+ 	auto &offset = dequant_offset_buffer_cpu[header->block_index];
+@@ -214,9 +245,22 @@
+ 
+ 		size_t packet_size = header->payload_words * sizeof(uint32_t);
+ 
++		if (packet_size < sizeof(*header))
++		{
++			LOGE("Packet size is smaller than its header.\n");
++			return false;
++		}
++
+ 		if (packet_size > size)
+ 		{
+ 			LOGE("Packet header states %zu bytes, but only %zu bytes left to parse.\n", packet_size, size);
++			return false;
++		}
++
++		// Bound control, coefficient and sign reads before retaining GPU payloads.
++		if (!validate_payload(header))
++		{
++			LOGE("Truncated block payload.\n");
+ 			return false;
+ 		}
+ 

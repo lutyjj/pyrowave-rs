@@ -10,6 +10,7 @@ use std::process::Command;
 
 fn main() {
 	println!("cargo:rerun-if-changed=wrapper.h");
+	println!("cargo:rerun-if-changed=quality.c");
 	println!("cargo:rerun-if-changed=CMakeLists.txt");
 	println!("cargo:rerun-if-changed=THIRD-PARTY-NOTICES");
 	println!("cargo:rerun-if-changed=UPSTREAM_REVISIONS");

@@ -30,6 +30,8 @@ NVIDIA modifier import workaround, and add
 descriptor on every outcome, tracking consumption at successful Vulkan memory
 allocation. The standard `pyrowave_image_create` entry point keeps upstream
 ownership semantics. These patches do not change the bitstream format.
+`quality.c` gives linkage to upstream's bitrate model, a static function in
+`eval-results/pyrowave_regression_results.h`.
 Adapted patches carry [third-party notices](THIRD-PARTY-NOTICES).
 
 See the [upstream bitstream specification](https://github.com/Themaister/pyrowave/blob/186f0393b77f7755953b5ecde994bb1cec2e4155/bitstream/bitstream.md)

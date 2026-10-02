@@ -89,10 +89,12 @@ add_subdirectory(${PYROWAVE_VENDOR_DIR} ${CMAKE_CURRENT_BINARY_DIR}/pyrowave EXC
 # Granite's scaler backs pyrowave_encoder_encode_gpu_scaled_synchronous().
 add_library(pyrowave-capi STATIC
 	${PYROWAVE_VENDOR_DIR}/pyrowave_c.cpp
-	${PYROWAVE_VENDOR_DIR}/Granite/video/scaler.cpp)
+	${PYROWAVE_VENDOR_DIR}/Granite/video/scaler.cpp
+	quality.c)
 target_include_directories(pyrowave-capi PRIVATE
 	${PYROWAVE_VENDOR_DIR}/shaders
-	${PYROWAVE_VENDOR_DIR}/Granite/video)
+	${PYROWAVE_VENDOR_DIR}/Granite/video
+	${PYROWAVE_VENDOR_DIR}/eval-results)
 target_link_libraries(pyrowave-capi PRIVATE pyrowave granite-vulkan granite-math)
 target_compile_options(pyrowave-capi PRIVATE -fvisibility=hidden -Wno-missing-field-initializers)
 set_target_properties(pyrowave-capi PROPERTIES POSITION_INDEPENDENT_CODE ON)

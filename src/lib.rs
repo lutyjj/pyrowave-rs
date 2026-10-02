@@ -11,6 +11,7 @@ mod error;
 mod format;
 #[cfg(all(feature = "dmabuf", target_os = "linux"))]
 mod image;
+mod quality;
 
 pub use decoder::Decoder;
 pub use device::Device;
@@ -19,6 +20,7 @@ pub use error::{Error, Result};
 pub use format::{ChromaSampling, VideoFormat};
 #[cfg(all(feature = "dmabuf", target_os = "linux"))]
 pub use image::{DmabufDescriptor, ImportedImage, RgbFormat};
+pub use quality::{QUALITY_RANGE, QualityTarget, estimate_bitrate};
 
 /// Pinned native revision. PyroWave's bitstream does not contain a version field.
 pub const UPSTREAM_REVISION: &str = pyrowave_sys::UPSTREAM_REVISION;

@@ -46,6 +46,8 @@ fn roundtrip_retains_device_and_accepts_unaligned_packets() {
 				assert_eq!(tail, &[0xa5; 64]);
 			}
 		}
+		let report = encoder.device().performance_report(true);
+		assert!(report.iter().any(|line| line.contains("ms per frame")));
 		assert!(encoder.encode_cpu([&[]; 3], budget).is_err());
 		assert!(decoder.decode_cpu([&mut [], &mut [], &mut []]).is_err());
 		assert!(decoder.push_packet(&[0; 3]).is_err());

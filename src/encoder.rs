@@ -124,11 +124,15 @@ impl Encoder {
 
 	/// Encode an imported RGB image with native scaling and color conversion.
 	///
+	/// The encoder reads the image on the GPU during this call. If the producer
+	/// is still writing to it, or writes again before this method returns, the
+	/// encoded picture is unspecified. Synchronize with the producer first, for
+	/// example by waiting on the DMA-BUF's fences.
+	///
 	/// # Safety
-	/// The producer must finish writing before this call, make those writes visible
-	/// to Vulkan, and relinquish ownership to `VK_QUEUE_FAMILY_EXTERNAL` in GENERAL
-	/// layout. Keep the backing allocation alive and prevent writes until this
-	/// method returns, including on error. Submitted work completes and releases
+	/// The producer must have relinquished ownership to `VK_QUEUE_FAMILY_EXTERNAL`
+	/// in GENERAL layout. Keep the backing allocation alive until this method
+	/// returns, including on error. Submitted work completes and releases
 	/// ownership back to the external queue family before returning.
 	#[cfg(all(feature = "dmabuf", target_os = "linux"))]
 	pub unsafe fn encode_image(

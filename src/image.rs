@@ -47,11 +47,12 @@ impl Device {
 	/// Import a DMA-BUF without taking ownership of the caller's descriptor.
 	///
 	/// The native boundary consumes a duplicate on both success and failure.
+	/// The caller owns synchronization with the buffer's producer.
 	///
 	/// # Safety
 	/// `fd` must refer to a DMA-BUF whose allocation matches every field of
-	/// `descriptor`. The caller owns synchronization with its producer and must
-	/// satisfy [`crate::Encoder::encode_image`]'s contract before encoding it.
+	/// `descriptor`. Satisfy [`crate::Encoder::encode_image`]'s contract before
+	/// encoding it.
 	pub unsafe fn import_dmabuf(&self, fd: BorrowedFd<'_>, descriptor: DmabufDescriptor) -> Result<ImportedImage> {
 		if descriptor.width == 0 || descriptor.height == 0 || descriptor.row_stride == 0 {
 			return Err(Error::InvalidInput("DMA-BUF dimensions and row stride must be nonzero"));

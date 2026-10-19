@@ -98,7 +98,8 @@ impl Encoder {
 	///
 	/// `maximum_bytes` is the native rate-control budget for one frame, independent
 	/// of network packet size. The returned codec records remain valid until the
-	/// next mutable access to the encoder. GPU work completes before this returns.
+	/// next mutable access to the encoder. On success, readback completes before
+	/// returning. An error does not guarantee GPU completion.
 	pub fn encode_cpu(&mut self, planes: [&[u8]; 3], maximum_bytes: usize) -> Result<&[u8]> {
 		let rate = ffi::pyrowave_rate_control {
 			maximum_bitstream_size: maximum_bytes,
@@ -131,17 +132,15 @@ impl Encoder {
 
 	/// Encode an imported RGB image with native scaling and color conversion.
 	///
-	/// The encoder reads the image on the GPU during this call. If the producer
-	/// is still writing to it, or writes again before this method returns, the
-	/// encoded picture is unspecified. Synchronize with the producer first, for
-	/// example by waiting on the DMA-BUF's fences.
+	/// Synchronize with the producer before encoding, for example by waiting
+	/// on the DMA-BUF's fences. Successful readback waits for the GPU image read.
 	///
 	/// # Safety
 	/// The producer must have relinquished ownership to `VK_QUEUE_FAMILY_EXTERNAL`
 	/// in GENERAL layout. Keep the backing allocation alive until GPU completion.
-	/// On success, readback completes before returning. On native error, follow
-	/// upstream's completion and ownership requirements before reusing or
-	/// destroying the image.
+	/// On success, readback completes before returning. An error does not imply
+	/// GPU completion or return of external ownership; establish both before
+	/// reusing or destroying the image or its backing allocation.
 	#[cfg(all(feature = "dmabuf", target_os = "linux"))]
 	pub unsafe fn encode_image(
 		&mut self,

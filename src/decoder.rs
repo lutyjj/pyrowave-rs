@@ -53,13 +53,14 @@ impl Decoder {
 	}
 
 	/// Queue one native packet or an entire contiguous encoded frame.
-	pub fn push_packet(&mut self, packet: &[u8]) -> Result<()> {
-		if packet.is_empty() || !packet.len().is_multiple_of(4) {
-			return Err(Error::InvalidInput("codec packets must contain whole 32-bit words"));
-		}
+	///
+	/// # Safety
+	/// Records must follow upstream's bitstream specification for this decoder's
+	/// format. The native parser does not fully validate payloads before GPU use.
+	pub unsafe fn push_packet(&mut self, packet: &[u8]) -> Result<()> {
 		// The C++ parser reads uint32_t values. A byte slice can be unaligned, so
 		// retain a reusable aligned copy at this FFI boundary.
-		self.packet_words.resize(packet.len() / 4, 0);
+		self.packet_words.resize(packet.len().div_ceil(4), 0);
 		// SAFETY: the destination has packet.len() bytes, is aligned for u32 and
 		// cannot overlap the caller's input. The native parser copies queued data.
 		crate::device::with_native(|| unsafe {

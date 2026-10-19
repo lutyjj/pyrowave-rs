@@ -40,7 +40,8 @@ fn roundtrip_retains_device_and_accepts_unaligned_packets() {
 			assert!(encoded.len() <= budget, "native rate control exceeded its budget");
 			let mut unaligned = vec![0];
 			unaligned.extend_from_slice(encoded);
-			decoder.push_packet(&unaligned[1..]).unwrap();
+			// SAFETY: the records came from the linked encoder with the same format.
+			unsafe { decoder.push_packet(&unaligned[1..]) }.unwrap();
 			assert!(decoder.is_ready(false));
 			let mut output = [
 				vec![0xa5; pixels + 64],
@@ -58,7 +59,8 @@ fn roundtrip_retains_device_and_accepts_unaligned_packets() {
 		assert!(report.iter().any(|line| line.contains("ms per frame")));
 		assert!(encoder.encode_cpu([&[]; 3], budget).is_err());
 		assert!(decoder.decode_cpu([&mut [], &mut [], &mut []]).is_err());
-		assert!(decoder.push_packet(&[0; 3]).is_err());
+		// SAFETY: no records are supplied; upstream treats empty input as a no-op.
+		unsafe { decoder.push_packet(&[]) }.unwrap();
 		decoder.clear();
 		assert!(!decoder.is_ready(false));
 	}

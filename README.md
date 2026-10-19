@@ -21,6 +21,7 @@ re-exported as `pyrowave::sys`. The Rust wrappers handle synchronous encoding an
 decoding of eight-bit CPU planes, imported RGB encoding, performance reports and
 upstream's bitrate model. Use `sys` for native frame contexts, higher precision
 CPU planes, GPU decoder output, custom devices, queue priorities and synchronization.
+`Decoder::push_packet()` is unsafe: callers must supply valid upstream codec records.
 See the [API surface and native update guide](pyrowave-sys/README.md).
 
 Use `as_raw()` to borrow a wrapper's native handle and `with_native()` to serialize

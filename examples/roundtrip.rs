@@ -14,7 +14,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let input = [vec![96; pixels], vec![128; pixels], vec![128; pixels]];
 	let encoded = encoder.encode_cpu(input.each_ref().map(Vec::as_slice), pixels * 2)?;
 	println!("PyroWave {}: encoded {} bytes", pyrowave::BITSTREAM_ID, encoded.len());
-	decoder.push_packet(encoded)?;
+	// SAFETY: the records came from the linked encoder with the same format.
+	unsafe { decoder.push_packet(encoded) }?;
 	if !decoder.is_ready(false) {
 		return Err("encoded frame is incomplete".into());
 	}

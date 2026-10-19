@@ -11,4 +11,4 @@ links = "pyrowave"
 
 [build-dependencies]
 cmake = "0.1"
-bindgen = { version = "0.72", features = ["runtime"], default-features = false }
+bindgen = { version = "0.73", features = ["runtime"], default-features = false }

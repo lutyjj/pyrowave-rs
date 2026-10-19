@@ -50,7 +50,7 @@ impl Encoder {
 	pub fn new(device: Device, format: VideoFormat) -> Result<Self> {
 		format.validate()?;
 		let info = ffi::pyrowave_encoder_create_info {
-			device: device.handle(),
+			device: device.as_raw(),
 			width: format.width as i32,
 			height: format.height as i32,
 			chroma: format.chroma.native(),
@@ -72,6 +72,13 @@ impl Encoder {
 	/// Retained device, for creating compatible imported images.
 	pub fn device(&self) -> &Device {
 		&self.device
+	}
+
+	/// Borrow the native encoder for features exposed through [`crate::sys`].
+	/// Calls must use [`crate::with_native`]. Keep this encoder alive, do not
+	/// destroy its handle, and finish work using borrowed resources before reuse.
+	pub fn as_raw(&self) -> ffi::pyrowave_encoder {
+		self.handle
 	}
 
 	/// Count blocks in the first `bands` wavelet bands (0 through 4).
@@ -114,9 +121,7 @@ impl Encoder {
 		// SAFETY: each plane covers its native layout; the native encoder only reads
 		// the input and copies it during this call. The device remains live.
 		check(
-			crate::device::with_native(|| unsafe {
-				ffi::pyrowave_encoder_encode_cpu_synchronous(self.handle, &buffers, &rate)
-			}),
+			crate::device::with_native(|| unsafe { ffi::pyrowave_encoder_encode_cpu(self.handle, &buffers, &rate) }),
 			"encoding CPU planes",
 		)?;
 		self.bitstream()
@@ -168,6 +173,8 @@ impl Encoder {
 			force_linear_filtering: false,
 			skip_dither: false,
 			crop_rect: std::ptr::null(),
+			ycbcr_range: ffi::VkSamplerYcbcrRange_VK_SAMPLER_YCBCR_RANGE_ITU_FULL,
+			ycbcr_range_bit_depth: 0,
 		};
 		let reference = ffi::pyrowave_gpu_external_reference {
 			image: image.handle,
@@ -182,13 +189,7 @@ impl Encoder {
 		// retain the same device and all pointers remain live during this call.
 		check(
 			crate::device::with_native(|| unsafe {
-				ffi::pyrowave_encoder_encode_gpu_scaled_synchronous(
-					self.handle,
-					&ownership,
-					&ownership,
-					&scaling,
-					&rate,
-				)
+				ffi::pyrowave_encoder_encode_gpu_scaled(self.handle, &ownership, &ownership, &scaling, &rate)
 			}),
 			"encoding imported image",
 		)?;

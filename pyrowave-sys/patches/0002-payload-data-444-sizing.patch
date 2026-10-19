@@ -6,11 +6,9 @@ worst-case payload buffer on the GPU. From Punktfunk patch 0001.
 Source: https://git.unom.io/unom/punktfunk/src/commit/5bc6ade3afdd47f7013ecda99992d1e62c7e64ce/crates/pyrowave-sys/patches/0001-payload-data-444-sizing.patch
 License: MIT; see ../THIRD-PARTY-NOTICES.
 
-diff --git a/pyrowave_encoder.cpp b/pyrowave_encoder.cpp
-index 1f841843..d32b9d75 100644
 --- a/pyrowave_encoder.cpp
 +++ b/pyrowave_encoder.cpp
-@@ -191,8 +191,11 @@ void Encoder::Impl::init_block_meta()
+@@ -191,8 +191,11 @@
  	meta_buffer = device->create_buffer(info);
  	device->set_name(*meta_buffer, "meta-buffer");
  

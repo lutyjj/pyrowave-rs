@@ -43,6 +43,15 @@ pub struct ImportedImage {
 	pub(crate) view: ffi::pyrowave_image_view,
 }
 
+impl ImportedImage {
+	/// Borrow the native imported image without transferring ownership.
+	/// Use [`crate::with_native`] for raw calls, retain the image until GPU
+	/// completion, and restore external ownership before wrapper encoding.
+	pub fn as_raw(&self) -> ffi::pyrowave_image {
+		self.handle
+	}
+}
+
 impl Device {
 	/// Import a DMA-BUF without taking ownership of the caller's descriptor.
 	///
@@ -89,7 +98,7 @@ impl Device {
 			..Default::default()
 		};
 		let info = ffi::pyrowave_image_create_info {
-			device: self.handle(),
+			device: self.as_raw(),
 			external_handle: fd.try_clone_to_owned()?.into_raw_fd() as ffi::pyrowave_os_handle,
 			handle_type: ffi::VkExternalMemoryHandleTypeFlagBits_VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
 			image_create_info: &image,

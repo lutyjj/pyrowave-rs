@@ -1,4 +1,4 @@
-use pyrowave::{ChromaSampling, Decoder, Device, Encoder, VideoFormat};
+use pyrowave::{ChromaSampling, Decoder, Device, Encoder, VideoFormat, sys, with_native};
 
 #[test]
 #[ignore = "requires a compatible Vulkan GPU"]
@@ -9,7 +9,14 @@ fn roundtrip_retains_device_and_accepts_unaligned_packets() {
 			height: 128,
 			chroma,
 		};
-		let device = Device::new().unwrap();
+		let mut raw_device = std::ptr::null_mut();
+		// SAFETY: the output is live and ownership transfers to Device below.
+		assert_eq!(
+			with_native(|| unsafe { sys::pyrowave_create_default_device(&mut raw_device) }),
+			sys::pyrowave_result_PYROWAVE_SUCCESS
+		);
+		// SAFETY: this successful creation has no other owner or borrowed Vulkan resources.
+		let device = unsafe { Device::from_raw(raw_device) };
 		let mut encoder = Encoder::new(device.clone(), format).unwrap();
 		let mut decoder = Decoder::new(device.clone(), format).unwrap();
 		drop(device);
@@ -20,7 +27,14 @@ fn roundtrip_retains_device_and_accepts_unaligned_packets() {
 			pixels
 		};
 		let budget = pixels * 2;
-		for luma in [32, 96, 192] {
+		for (frame, luma) in [32, 96, 192].into_iter().enumerate() {
+			// SAFETY: the retained encoder has completed the preceding frame.
+			assert_eq!(
+				with_native(|| unsafe {
+					sys::pyrowave_encoder_set_frame_context(encoder.as_raw(), (frame % 2) as i32)
+				}),
+				sys::pyrowave_result_PYROWAVE_SUCCESS
+			);
 			let input = [vec![luma; pixels], vec![112; chroma_pixels], vec![140; chroma_pixels]];
 			for invalid_budget in [0, 4, 7] {
 				assert!(matches!(

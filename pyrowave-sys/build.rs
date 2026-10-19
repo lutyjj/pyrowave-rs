@@ -77,6 +77,25 @@ fn main() {
 	);
 	println!("cargo:rustc-env=PYROWAVE_UPSTREAM_REVISION={revision}");
 	println!("cargo:rustc-env=PYROWAVE_BITSTREAM_ID={}", &revision[..8]);
+	let exports = std::fs::read_to_string(vendor.join("pyrowave-shared.def")).expect("read upstream exports");
+	let mut export_test = String::from("#[test]\nfn upstream_exports_are_bound_and_linked() {\n");
+	let mut export_count = 0;
+	for symbol in exports
+		.lines()
+		.map(str::trim)
+		.filter(|line| line.starts_with("pyrowave_"))
+	{
+		assert!(symbol.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'));
+		export_test.push_str(&format!("std::hint::black_box(super::{symbol} as *const ());\n"));
+		export_count += 1;
+	}
+	assert!(export_count > 0, "upstream export list contains no PyroWave functions");
+	export_test.push_str("}\n");
+	std::fs::write(
+		PathBuf::from(env::var("OUT_DIR").unwrap()).join("export_test.rs"),
+		export_test,
+	)
+	.expect("write native export linkage test");
 
 	// Dependents before dependencies: GNU ld resolves static archives in order.
 	println!("cargo:rustc-link-search=native={}", build.display());

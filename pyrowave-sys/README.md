@@ -1,10 +1,46 @@
 # PyroWave native bindings
 
-This crate builds the official PyroWave C++ codec and generates bindings for its
-C API. [`pyrowave`](../README.md) owns the Rust resource lifetimes.
-Use this crate directly for GPU decoder output, device sharing and advanced
-synchronization; raw handles cannot extend an existing safe-wrapper codec.
+This crate builds the official PyroWave 1.0 C++ codec and generates bindings for
+its complete C API. [`pyrowave`](../README.md) owns Rust resource lifetimes and
+re-exports these bindings as `pyrowave::sys`.
 Distribution uses Git checkouts or path dependencies; registry publishing is disabled.
+
+## API surface
+
+Bindgen follows `pyrowave.h`; native functionality does not depend on a matching
+convenience method. A generated test takes the address of every function in
+upstream's `pyrowave-shared.def` and checks that Rust declarations and native
+symbols link together, without requiring a GPU.
+
+| Upstream capability | Rust access |
+| --- | --- |
+| API version | `api_version()` or `sys` |
+| Default device and performance reports | `Device` |
+| GPU selection, inherited devices, queue priority, queue type and command buffers | `sys`; adopt an owned native device with `Device::from_raw()` |
+| External semaphore import/export, CPU waits/signals and GPU synchronization | `sys` |
+| External images and image views | `sys`; `Device::import_dmabuf()` handles packed RGB DMA-BUFs |
+| Planar CPU input, including NV12 and 8-, 10- and 16-bit samples | `sys`; `Encoder::encode_cpu()` handles eight-bit planar input |
+| GPU planes, RGB conversion, scaling, crop, dither and full/narrow YCbCr range | `sys`; `Encoder::encode_image()` handles imported RGB with full-range output |
+| Frame contexts and asynchronous readback | `sys` |
+| Packet boundaries, padding, critical packets, active blocks and mapped bitstreams | `sys`; the wrapper returns one contiguous frame and counts active blocks |
+| Packet ingestion, readiness and partial frames with sideband information | `sys`; `Decoder` handles ingestion and ordinary readiness |
+| GPU decoder output and synchronous/asynchronous CPU output at supported depths | `sys`; `Decoder::decode_cpu()` reads eight-bit planes synchronously |
+| Per-stage timings and upstream's bitrate model | `Device::performance_report()` and `estimate_bitrate()` |
+
+`Device`, `Encoder`, `Decoder` and `ImportedImage` expose borrowed `as_raw()`
+handles. Keep their owners alive, do not destroy borrowed handles, and use
+`pyrowave::with_native()` for raw calls that share a process with the wrappers.
+The backend shares Vulkan dispatch state across devices. The synchronization
+closure must not call wrapper methods, which acquire the same lock.
+
+Raw operations must preserve the wrapper's configured format and complete work
+using borrowed resources before reuse. The wrapper decoder's cached CPU planes
+are eight-bit: use a separate native decoder for higher precision CPU readback.
+Device command-buffer overrides must be cleared before returning to wrapper
+methods. Applications own any Vulkan handles inherited by a native device and
+must retain them until all wrappers using that device have dropped.
+
+## Build and upstream updates
 
 `upstream/pyrowave` and `upstream/Granite` are pinned Git submodules. Initialize
 those and the two required Granite dependencies from the repository root:
@@ -23,10 +59,20 @@ pins and supplies the generated vendor manifest, `UPSTREAM_REVISION` and
 the native source, update the submodule Git links and `UPSTREAM_REVISIONS` together,
 then validate the build. Preserve all upstream license notices.
 
-The local patches pool encoder buffers, size 4:4:4 payload storage, repair decoder
-record validation and scaled-encoding cleanup and precision changes, allow the
-NVIDIA modifier import workaround, and add
-`pyrowave_image_create_owned_fd`. That extension consumes an imported DMA-BUF
+The build uses upstream's encoder buffer pool and compiled shaders. Local patches
+retain correctness and ownership fixes that the pinned implementation needs:
+
+| Patch | Reason to retain it |
+| --- | --- |
+| `0001-encoder-readback-bounds` | Bound copies after a host buffer grows but its GPU allocation fails |
+| `0002-payload-data-444-sizing` | Size scratch storage for high-entropy 4:4:4 frames |
+| `0003-granite-dmabuf-import-without-format-query` | Allow NVIDIA proprietary-driver DMA-BUF modifiers omitted from its format query |
+| `0004-owned-dmabuf-import` | Give the Rust import boundary deterministic descriptor ownership |
+| `0005-decoder-record-progress` | Reject undersized records and truncated coefficient/sign payloads before GPU use |
+| `0006-scaled-encode-error-cleanup` | Complete queued scaling and release external images when encoding fails |
+| `0007-scaled-encode-precision` | Replace cached scaler planes when intermediate precision changes |
+
+`pyrowave_image_create_owned_fd` consumes an imported DMA-BUF
 descriptor on every outcome, tracking consumption at successful Vulkan memory
 allocation. The standard `pyrowave_image_create` entry point keeps upstream
 ownership semantics. These patches do not change the bitstream format.
@@ -34,8 +80,11 @@ ownership semantics. These patches do not change the bitstream format.
 `eval-results/pyrowave_regression_results.h`.
 Adapted patches carry [third-party notices](THIRD-PARTY-NOTICES).
 
-See the [upstream bitstream specification](https://github.com/Themaister/pyrowave/blob/186f0393b77f7755953b5ecde994bb1cec2e4155/bitstream/bitstream.md)
-and [C API](https://github.com/Themaister/pyrowave/blob/186f0393b77f7755953b5ecde994bb1cec2e4155/pyrowave.h).
+See the [upstream bitstream specification](https://github.com/Themaister/pyrowave/blob/21f099d24df0ab0e4c10c3288c924b6b1717e581/bitstream/bitstream.md)
+and [C API](https://github.com/Themaister/pyrowave/blob/21f099d24df0ab0e4c10c3288c924b6b1717e581/pyrowave.h).
+API, wrapper, patch, build and native export checks must pass after each refresh.
+GPU roundtrips and interop tests establish runtime behavior on the tested driver;
+a successful build alone does not establish that behavior or upstream performance.
 
 ## Container build
 
@@ -51,14 +100,18 @@ codec used by the Rust crate:
 ```sh
 cargo test --workspace --all-features -- --ignored --nocapture
 cmake -S pyrowave-sys -B target/native-tools -DCMAKE_BUILD_TYPE=Release
-cmake --build target/native-tools --target pyrowave-c-test pyrowave-seam-test pyrowave-decode --parallel 8
+cmake --build target/native-tools --target pyrowave-c-test pyrowave-c-interop-test pyrowave-device-validation pyrowave-seam-test pyrowave-decode --parallel 8
 target/native-tools/pyrowave-c-test
+target/native-tools/pyrowave-c-interop-test
+target/native-tools/pyrowave-device-validation --roundtrip
 target/native-tools/pyrowave-seam-test
 target/native-tools/pyrowave-decode capture.pyrowave capture.y4m
 ```
 
 These tools require a compatible Vulkan GPU. The upstream C test checks 4K
-roundtrips, rate budgets, decoded image quality, both chroma layouts, partial-frame
-readiness and invalid arguments. The decoder accepts the upstream `.pyrowave`
-container. Verify output frame count and dimensions: it can return success after
+roundtrips, rate budgets, decoded image quality, both chroma layouts, higher
+precision CPU planes, frame contexts, asynchronous readback, partial-frame
+readiness and invalid arguments. The interop test exercises shared Vulkan
+devices, imported resources and synchronization. The decoder accepts upstream's
+versioned `PWV1` disk container. Verify output frame count and dimensions: it can return success after
 malformed input.

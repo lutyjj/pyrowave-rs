@@ -12,14 +12,23 @@ pub struct Decoder {
 }
 
 impl Decoder {
+	/// Borrow the native decoder for features exposed through [`crate::sys`].
+	/// Calls must use [`crate::with_native`]. Keep this decoder alive, do not
+	/// destroy its handle, and finish work using borrowed resources before reuse.
+	/// Use a separate native decoder for higher precision CPU readback: this
+	/// wrapper's cached CPU output planes must remain eight-bit.
+	pub fn as_raw(&self) -> ffi::pyrowave_decoder {
+		self.handle
+	}
+
 	pub fn new(device: Device, format: VideoFormat) -> Result<Self> {
 		format.validate()?;
 		// SAFETY: the device is live; this query does not submit work.
 		let fragment_path = crate::device::with_native(|| unsafe {
-			ffi::pyrowave_decoder_device_prefers_fragment_path(device.handle())
+			ffi::pyrowave_decoder_device_prefers_fragment_path(device.as_raw())
 		});
 		let info = ffi::pyrowave_decoder_create_info {
-			device: device.handle(),
+			device: device.as_raw(),
 			width: format.width as i32,
 			height: format.height as i32,
 			chroma: format.chroma.native(),

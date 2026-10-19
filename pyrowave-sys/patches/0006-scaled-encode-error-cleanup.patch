@@ -5,7 +5,7 @@ before recording any work. Cleanup remains off the successful encoding path.
 
 --- a/pyrowave_c.cpp
 +++ b/pyrowave_c.cpp
-@@ -1021,6 +1021,20 @@
+@@ -1046,6 +1046,20 @@
  	}
  }
  
@@ -24,9 +24,9 @@ before recording any work. Cleanup remains off the successful encoding path.
 +}
 +
  static pyrowave_result
- pyrowave_encoder_encode_gpu_synchronous_inner(pyrowave_encoder encoder,
-                                               const pyrowave_gpu_sync_operation *acquire,
-@@ -1111,17 +1125,7 @@
+ pyrowave_encoder_encode_gpu_inner(pyrowave_encoder encoder,
+                                   const pyrowave_gpu_sync_operation *acquire,
+@@ -1137,17 +1151,7 @@
  		return PYROWAVE_ERROR_INVALID_ARGUMENT;
  	}
  
@@ -45,7 +45,7 @@ before recording any work. Cleanup remains off the successful encoding path.
  
  	// NVIDIA really doesn't like it if we write bitstream to cached host.
  	// Performance issue since these memory types are mapped coherent on the GPU.
-@@ -1176,6 +1180,9 @@
+@@ -1211,6 +1215,9 @@
  {
  	Util::set_thread_logging_interface(&null_logger);
  
@@ -55,12 +55,12 @@ before recording any work. Cleanup remains off the successful encoding path.
  	if (scaling_info->intermediate_plane_format != VK_FORMAT_R8_UNORM &&
  		scaling_info->intermediate_plane_format != VK_FORMAT_R16_UNORM)
  		return PYROWAVE_ERROR_INVALID_ARGUMENT;
-@@ -1335,7 +1342,20 @@
- 	ViewBuffers buffers = {};
+@@ -1381,7 +1388,20 @@
  	for (int i = 0; i < 3; i++)
  		buffers.planes[i] = &encoder->scaler_planes[i]->get_view();
--	return pyrowave_encoder_encode_gpu_synchronous_inner(encoder, nullptr, release, buffers, rate_control);
-+	auto result = pyrowave_encoder_encode_gpu_synchronous_inner(encoder, nullptr, release, buffers, rate_control);
+ 	buffers.range_scale = encoder->ycbcr_scaling_factor;
+-	return pyrowave_encoder_encode_gpu_inner(encoder, nullptr, release, buffers, rate_control);
++	auto result = pyrowave_encoder_encode_gpu_inner(encoder, nullptr, release, buffers, rate_control);
 +	if (result != PYROWAVE_SUCCESS && !encoder->pyro_device->cmd)
 +	{
 +		// Scaling was queued before the inner encoder could fail. Release the
@@ -76,4 +76,4 @@ before recording any work. Cleanup remains off the successful encoding path.
 +	return result;
  }
  
- pyrowave_result
+ static bool pyrowave_cpu_buffer_format_subsampled(pyrowave_cpu_buffer_format format)

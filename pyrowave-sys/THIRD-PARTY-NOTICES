@@ -1,7 +1,7 @@
 Adapted Punktfunk patches
 
-The encoder buffer pool (0001), 4:4:4 payload sizing (0002) and decoder record
-progress guard (0005) derive from Punktfunk revision
+The 4:4:4 payload sizing (0002) and decoder record progress guard (0005)
+derive from Punktfunk revision
 5bc6ade3afdd47f7013ecda99992d1e62c7e64ce. Their patch headers link to the source.
 These contributions are used under its MIT license:
 

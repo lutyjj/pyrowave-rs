@@ -81,12 +81,12 @@ static void test_scaled_encoding(bool error_cleanup)
 		ownership.sync.semaphore = semaphore->get_semaphore();
 		ownership.sync.value = 1;
 		scaling.intermediate_plane_format = VK_FORMAT_UNDEFINED;
-		require(pyrowave_encoder_encode_gpu_scaled_synchronous(fixture.encoder, &acquire, &ownership,
+		require(pyrowave_encoder_encode_gpu_scaled(fixture.encoder, &acquire, &ownership,
 		                                                      &scaling, &rate) == PYROWAVE_ERROR_INVALID_ARGUMENT,
 		        "rejecting invalid precision before GPU submission");
 		scaling.intermediate_plane_format = VK_FORMAT_R8_UNORM;
 		rate.maximum_bitstream_size = 0;
-		require(pyrowave_encoder_encode_gpu_scaled_synchronous(fixture.encoder, &acquire, &ownership,
+		require(pyrowave_encoder_encode_gpu_scaled(fixture.encoder, &acquire, &ownership,
 		                                                      &scaling, &rate) == PYROWAVE_ERROR_INVALID_ARGUMENT,
 		        "rejecting inner-encoder budget after scaling");
 		uint64_t completed = 0;
@@ -105,7 +105,7 @@ static void test_scaled_encoding(bool error_cleanup)
 		scaling.output_color_space = precision == VK_FORMAT_R16_UNORM
 		                            ? VK_COLOR_SPACE_HDR10_ST2084_EXT : VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 		scaling.ycbcr_chroma_midpoint = precision == VK_FORMAT_R16_UNORM ? 0.5f : 128.0f / 255.0f;
-		require(pyrowave_encoder_encode_gpu_scaled_synchronous(fixture.encoder, &ownership, &ownership,
+		require(pyrowave_encoder_encode_gpu_scaled(fixture.encoder, &ownership, &ownership,
 		                                                      &scaling, &rate) == PYROWAVE_SUCCESS,
 		        "encoding RGB image after configuration change or failure");
 		size_t packets = 0;
@@ -182,16 +182,16 @@ static void test_pool_growth_retry()
 		input.plane_size_in_bytes[i] = samples.size();
 	}
 	pyrowave_rate_control rate = {65536};
-	require(pyrowave_encoder_encode_cpu_synchronous(fixture.encoder, &input, &rate) == PYROWAVE_SUCCESS,
+	require(pyrowave_encoder_encode_cpu(fixture.encoder, &input, &rate) == PYROWAVE_SUCCESS,
 	        "initializing pooled buffers");
-	fixture.encoder->queued_fence->wait();
+	fixture.encoder->contexts[0].queued_fence->wait();
 	// Simulate successful host growth followed by device allocation failure.
-	auto larger_host = fixture.encoder->queued_bitstream->get_create_info();
+	auto larger_host = fixture.encoder->contexts[0].queued_bitstream->get_create_info();
 	larger_host.size *= 2;
-	fixture.encoder->queued_bitstream = fixture.device->device.create_buffer(larger_host);
-	require(bool(fixture.encoder->queued_bitstream), "simulating interrupted pool growth");
-	pool_copy_source = fixture.encoder->queued_bitstream_gpu->get_buffer();
-	pool_copy_capacity = fixture.encoder->queued_bitstream_gpu->get_create_info().size;
+	fixture.encoder->contexts[0].queued_bitstream = fixture.device->device.create_buffer(larger_host);
+	require(bool(fixture.encoder->contexts[0].queued_bitstream), "simulating interrupted pool growth");
+	pool_copy_source = fixture.encoder->contexts[0].queued_bitstream_gpu->get_buffer();
+	pool_copy_capacity = fixture.encoder->contexts[0].queued_bitstream_gpu->get_create_info().size;
 	pool_copy_seen = false;
 	pool_copy_valid = true;
 	auto &table = const_cast<VolkDeviceTable &>(fixture.device->device.get_device_table());
@@ -199,8 +199,8 @@ static void test_pool_growth_retry()
 	// Observe the production copy and block an invalid region before Vulkan.
 	table.vkCmdCopyBuffer = validate_pool_copy;
 	rate.maximum_bitstream_size /= 2;
-	auto result = pyrowave_encoder_encode_cpu_synchronous(fixture.encoder, &input, &rate);
-	fixture.encoder->queued_fence->wait();
+	auto result = pyrowave_encoder_encode_cpu(fixture.encoder, &input, &rate);
+	fixture.encoder->contexts[0].queued_fence->wait();
 	table.vkCmdCopyBuffer = native_copy_buffer;
 	require(result == PYROWAVE_SUCCESS, "retrying encode at a smaller budget");
 	require(pool_copy_seen && pool_copy_valid, "pooled copy exceeded the retained GPU buffer");

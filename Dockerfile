@@ -9,4 +9,4 @@ COPY . .
 
 RUN cargo test --workspace --all-features --locked \
     && cmake -S pyrowave-sys -B target/native-tools -DCMAKE_BUILD_TYPE=Release \
-    && cmake --build target/native-tools --target pyrowave-c-test pyrowave-seam-test pyrowave-decode --parallel 8
+    && cmake --build target/native-tools --target pyrowave-c-test pyrowave-c-interop-test pyrowave-device-validation pyrowave-seam-test pyrowave-decode --parallel 8

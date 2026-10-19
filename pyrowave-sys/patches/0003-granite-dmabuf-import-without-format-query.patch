@@ -5,7 +5,7 @@ and memory import still validate the demonstrated NVIDIA compatibility path.
 
 --- a/Granite/vulkan/device.cpp
 +++ b/Granite/vulkan/device.cpp
-@@ -4319,13 +4319,26 @@
+@@ -4401,13 +4401,26 @@
  		}
  
  		props2.pNext = &external_props;

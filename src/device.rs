@@ -50,12 +50,27 @@ impl Device {
 		let mut lines = Vec::new();
 		// SAFETY: the device is live and the callback only runs during this call.
 		crate::device::with_native(|| unsafe {
-			ffi::pyrowave_device_report_performance_stats(self.handle(), Some(push), (&raw mut lines).cast(), reset);
+			ffi::pyrowave_device_report_performance_stats(self.as_raw(), Some(push), (&raw mut lines).cast(), reset);
 		});
 		lines
 	}
 
-	pub(crate) fn handle(&self) -> ffi::pyrowave_device {
+	/// Take ownership of a device created through [`crate::sys`].
+	///
+	/// # Safety
+	/// `handle` must be a live, non-null device from the linked native library,
+	/// with no other owner that will destroy it. Any Vulkan resources borrowed
+	/// by the native device must outlive this device and all its clones.
+	pub unsafe fn from_raw(handle: ffi::pyrowave_device) -> Self {
+		Self {
+			inner: Rc::new(DeviceInner { handle }),
+		}
+	}
+
+	/// Borrow the native handle without transferring ownership.
+	/// Use [`crate::with_native`] for calls through this handle. Do not destroy
+	/// it, and restore borrowed command buffers before using wrapper methods.
+	pub fn as_raw(&self) -> ffi::pyrowave_device {
 		self.inner.handle
 	}
 
@@ -72,9 +87,17 @@ impl Drop for DeviceInner {
 	}
 }
 
-// Device confinement does not protect Volk's process-wide dispatch table when
-// another thread constructs or destroys a separate device.
-pub(crate) fn with_native<T>(call: impl FnOnce() -> T) -> T {
+/// Serialize native calls with all ownership wrappers in this crate.
+///
+/// The backend shares Vulkan dispatch state across devices. Raw calls that
+/// create, use or destroy native resources must run inside this closure when
+/// mixed with the wrappers. Calls made only through [`crate::sys`] must follow
+/// the same synchronization rule if wrappers are used elsewhere in the process.
+///
+/// Do not call wrapper methods or nest `with_native` inside the closure: the
+/// lock is held until it returns. Native calls remain unsafe; retain borrowed
+/// resources until GPU completion and follow their upstream contracts.
+pub fn with_native<T>(call: impl FnOnce() -> T) -> T {
 	static NATIVE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 	let _guard = NATIVE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
 	call()

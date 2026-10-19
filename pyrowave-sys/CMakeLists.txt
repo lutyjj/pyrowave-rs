@@ -86,7 +86,7 @@ target_compile_definitions(granite-volk-headers INTERFACE VOLK_NAMESPACE)
 add_subdirectory(${PYROWAVE_VENDOR_DIR} ${CMAKE_CURRENT_BINARY_DIR}/pyrowave EXCLUDE_FROM_ALL)
 
 # Upstream ships the C API only as a shared library; build it static instead.
-# Granite's scaler backs pyrowave_encoder_encode_gpu_scaled_synchronous().
+# Granite's scaler backs pyrowave_encoder_encode_gpu_scaled().
 add_library(pyrowave-capi STATIC
 	${PYROWAVE_VENDOR_DIR}/pyrowave_c.cpp
 	${PYROWAVE_VENDOR_DIR}/Granite/video/scaler.cpp
@@ -102,6 +102,12 @@ set_target_properties(pyrowave-capi PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # Upstream's GPU roundtrip and error-handling oracle, built only on request.
 add_executable(pyrowave-c-test EXCLUDE_FROM_ALL ${PYROWAVE_VENDOR_DIR}/pyrowave_c_test.cpp)
 target_link_libraries(pyrowave-c-test PRIVATE pyrowave-capi granite-volk-headers)
+
+add_executable(pyrowave-c-interop-test EXCLUDE_FROM_ALL ${PYROWAVE_VENDOR_DIR}/pyrowave_c_interop_test.cpp)
+target_link_libraries(pyrowave-c-interop-test PRIVATE pyrowave-capi granite-vulkan granite-math)
+
+add_executable(pyrowave-device-validation EXCLUDE_FROM_ALL ${PYROWAVE_VENDOR_DIR}/pyrowave_device_validation.cpp)
+target_link_libraries(pyrowave-device-validation PRIVATE pyrowave-capi granite-util granite-volk-headers)
 
 add_executable(pyrowave-seam-test EXCLUDE_FROM_ALL tests/native.cpp)
 target_include_directories(pyrowave-seam-test PRIVATE

@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <climits>
 #include <cstring>
 #include <stdexcept>
 #include <vector>
@@ -18,10 +19,10 @@ struct Fixture
 	pyrowave_device device = nullptr;
 	pyrowave_encoder encoder = nullptr;
 
-	Fixture()
+	Fixture(pyrowave_chroma_subsampling chroma = PYROWAVE_CHROMA_SUBSAMPLING_444)
 	{
 		require(pyrowave_create_default_device(&device) == PYROWAVE_SUCCESS, "creating Vulkan device");
-		pyrowave_encoder_create_info info = {device, 128, 128, PYROWAVE_CHROMA_SUBSAMPLING_444};
+		pyrowave_encoder_create_info info = {device, 128, 128, chroma};
 		if (pyrowave_encoder_create(&info, &encoder) != PYROWAVE_SUCCESS)
 		{
 			pyrowave_device_destroy(device);
@@ -37,6 +38,131 @@ struct Fixture
 			pyrowave_device_destroy(device);
 	}
 };
+
+static void test_frame_context_bounds()
+{
+	pyrowave_device_opaque device;
+	pyrowave_encoder_opaque encoder;
+	pyrowave_decoder_opaque decoder;
+	decoder.pyro_device = &device;
+	pyrowave_cpu_buffer buffers = {};
+	for (int context : {INT_MIN, -1, PYROWAVE_MAX_FRAME_CONTEXTS, INT_MAX})
+	{
+		require(pyrowave_encoder_set_frame_context(&encoder, context) == PYROWAVE_ERROR_INVALID_ARGUMENT,
+		        "rejecting invalid encoder frame context");
+		require(pyrowave_decoder_decode_cpu_buffer_async(&decoder, &buffers, context) == PYROWAVE_ERROR_INVALID_ARGUMENT,
+		        "rejecting invalid asynchronous decoder frame context");
+		require(pyrowave_decoder_decode_cpu_buffer_complete(&decoder, &buffers, context) == PYROWAVE_ERROR_INVALID_ARGUMENT,
+		        "rejecting invalid decoder completion frame context");
+	}
+	for (int context : {0, 1})
+	{
+		require(pyrowave_encoder_set_frame_context(&encoder, context) == PYROWAVE_SUCCESS,
+		        "accepting valid encoder frame context");
+		require(encoder.context == context, "selecting requested frame context");
+	}
+}
+
+static void test_cpu_format_changes()
+{
+	for (auto chroma : {PYROWAVE_CHROMA_SUBSAMPLING_420, PYROWAVE_CHROMA_SUBSAMPLING_444})
+	{
+		Fixture fixture(chroma);
+		pyrowave_decoder_create_info info = {fixture.device, 128, 128, chroma, false};
+		pyrowave_decoder raw_decoder = nullptr;
+		require(pyrowave_decoder_create(&info, &raw_decoder) == PYROWAVE_SUCCESS, "creating format-change decoder");
+		struct DeleteDecoder { void operator()(pyrowave_decoder decoder) { pyrowave_decoder_destroy(decoder); } };
+		std::unique_ptr<pyrowave_decoder_opaque, DeleteDecoder> decoder(raw_decoder);
+		const bool subsampled = chroma == PYROWAVE_CHROMA_SUBSAMPLING_420;
+		for (int context : {0, 1})
+		{
+			require(pyrowave_encoder_set_frame_context(fixture.encoder, context) == PYROWAVE_SUCCESS,
+			        "selecting format-change frame context");
+			for (int depth : {8, 16, 10, 8, 0, 16, 8})
+			{
+				if (depth == 0 && !subsampled)
+					continue;
+				const bool nv12 = depth == 0;
+				const size_t bpp = depth > 8 ? 2 : 1;
+				const unsigned maximum = depth == 10 ? 1023 : depth == 16 ? 65535 : 255;
+				pyrowave_cpu_buffer input = {};
+				input.width = input.height = 128;
+				input.format = nv12 ? PYROWAVE_CPU_BUFFER_FORMAT_NV12 : depth == 10
+				    ? (subsampled ? PYROWAVE_CPU_BUFFER_FORMAT_YUV420P10 : PYROWAVE_CPU_BUFFER_FORMAT_YUV444P10)
+				    : depth == 16
+				    ? (subsampled ? PYROWAVE_CPU_BUFFER_FORMAT_YUV420P16 : PYROWAVE_CPU_BUFFER_FORMAT_YUV444P16)
+				    : (subsampled ? PYROWAVE_CPU_BUFFER_FORMAT_YUV420P : PYROWAVE_CPU_BUFFER_FORMAT_YUV444P);
+				std::vector<uint16_t> samples[3];
+				for (int plane = 0; plane < (nv12 ? 2 : 3); plane++)
+				{
+					const size_t width = plane && subsampled ? 64 : 128;
+					const size_t height = plane && subsampled ? 64 : 128;
+					const size_t components = nv12 && plane == 1 ? 2 : 1;
+					input.row_stride_in_bytes[plane] = width * bpp * components;
+					input.plane_size_in_bytes[plane] = input.row_stride_in_bytes[plane] * height;
+					samples[plane].resize((input.plane_size_in_bytes[plane] + 1) / 2);
+					input.data[plane] = samples[plane].data();
+					for (size_t i = 0; i < width * height * components; i++)
+					{
+						const unsigned value = plane == 0 ? 96 : (nv12 && plane == 1 ? (i % 2 ? 176 : 80) : plane == 1 ? 112 : 144);
+						if (bpp == 2)
+							samples[plane][i] = uint16_t((value * maximum + 127) / 255);
+						else
+							static_cast<uint8_t *>(input.data[plane])[i] = uint8_t(value);
+					}
+				}
+				pyrowave_rate_control rate = {65536};
+				require(pyrowave_encoder_encode_cpu(fixture.encoder, &input, &rate) == PYROWAVE_SUCCESS,
+				        "encoding after CPU plane format change");
+				size_t count = 0;
+				require(pyrowave_encoder_compute_num_packets(fixture.encoder, 65536, &count) == PYROWAVE_SUCCESS,
+				        "waiting for format-change encode");
+				std::vector<pyrowave_packet> packets(count);
+				std::vector<uint8_t> stream(65536);
+				require(pyrowave_encoder_packetize(fixture.encoder, packets.data(), 65536, &count,
+				                                  stream.data(), stream.size()) == PYROWAVE_SUCCESS,
+				        "packetizing format-change encode");
+				for (size_t i = 0; i < count; i++)
+					require(pyrowave_decoder_push_packet(decoder.get(), stream.data() + packets[i].offset, packets[i].size)
+					        == PYROWAVE_SUCCESS, "queuing format-change packets");
+				pyrowave_cpu_buffer output = {};
+				output.width = output.height = 128;
+				output.format = bpp == 2
+				    ? (subsampled ? PYROWAVE_CPU_BUFFER_FORMAT_YUV420P16 : PYROWAVE_CPU_BUFFER_FORMAT_YUV444P16)
+				    : (subsampled ? PYROWAVE_CPU_BUFFER_FORMAT_YUV420P : PYROWAVE_CPU_BUFFER_FORMAT_YUV444P);
+				std::vector<uint16_t> decoded[3];
+				for (int plane = 0; plane < 3; plane++)
+				{
+					const size_t width = plane && subsampled ? 64 : 128;
+					const size_t height = plane && subsampled ? 64 : 128;
+					output.row_stride_in_bytes[plane] = width * bpp;
+					output.plane_size_in_bytes[plane] = width * height * bpp;
+					decoded[plane].resize((output.plane_size_in_bytes[plane] + 1) / 2 + 32, 0xa5a5);
+					output.data[plane] = decoded[plane].data();
+				}
+				require(pyrowave_decoder_decode_cpu_buffer_async(decoder.get(), &output, context) == PYROWAVE_SUCCESS,
+				        "decoding after CPU plane format change");
+				require(pyrowave_decoder_decode_cpu_buffer_complete(decoder.get(), &output, context) == PYROWAVE_SUCCESS,
+				        "completing format-change readback");
+				for (int plane = 0; plane < 3; plane++)
+				{
+					const unsigned value = plane == 0 ? 96 : nv12 ? (plane == 1 ? 80 : 176) : plane == 1 ? 112 : 144;
+					const unsigned expected = bpp == 2 ? value * 257 : value;
+					const unsigned tolerance = bpp == 2 ? 768 : 3;
+					for (size_t i = 0; i < output.plane_size_in_bytes[plane] / bpp; i++)
+					{
+						const unsigned actual = bpp == 2 ? decoded[plane][i] : static_cast<uint8_t *>(output.data[plane])[i];
+						require(actual + tolerance >= expected && expected + tolerance >= actual,
+						        "CPU format change corrupted decoded samples");
+					}
+					const auto *bytes = static_cast<const uint8_t *>(output.data[plane]);
+					for (size_t i = output.plane_size_in_bytes[plane]; i < decoded[plane].size() * 2; i++)
+						require(bytes[i] == 0xa5, "CPU format change overwrote readback tail");
+				}
+			}
+		}
+	}
+}
 
 static void test_scaled_encoding(bool error_cleanup)
 {
@@ -212,8 +338,14 @@ int main(int argc, char **argv)
 	{
 		require(argc == 1 || (argc == 2 && (std::strcmp(argv[1], "--error-cleanup") == 0 ||
 		                                  std::strcmp(argv[1], "--precision") == 0 ||
+		                                  std::strcmp(argv[1], "--contexts") == 0 ||
+		                                  std::strcmp(argv[1], "--formats") == 0 ||
 		                                  std::strcmp(argv[1], "--pool-retry") == 0)),
-		        "usage: pyrowave-seam-test [--error-cleanup|--precision|--pool-retry]");
+		        "usage: pyrowave-seam-test [--error-cleanup|--precision|--pool-retry|--contexts|--formats]");
+		if (argc == 1 || std::strcmp(argv[1], "--contexts") == 0)
+			test_frame_context_bounds();
+		if (argc == 1 || std::strcmp(argv[1], "--formats") == 0)
+			test_cpu_format_changes();
 		if (argc == 1 || std::strcmp(argv[1], "--error-cleanup") == 0)
 			test_scaled_encoding(true);
 		if (argc == 1 || std::strcmp(argv[1], "--precision") == 0)

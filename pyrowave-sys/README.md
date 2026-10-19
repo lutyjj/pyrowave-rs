@@ -34,8 +34,7 @@ The backend shares Vulkan dispatch state across devices. The synchronization
 closure must not call wrapper methods, which acquire the same lock.
 
 Raw operations must preserve the wrapper's configured format and complete work
-using borrowed resources before reuse. The wrapper decoder's cached CPU planes
-are eight-bit: use a separate native decoder for higher precision CPU readback.
+using borrowed resources before reuse.
 Device command-buffer overrides must be cleared before returning to wrapper
 methods. Applications own any Vulkan handles inherited by a native device and
 must retain them until all wrappers using that device have dropped.
@@ -71,6 +70,8 @@ retain correctness and ownership fixes that the pinned implementation needs:
 | `0005-decoder-record-progress` | Reject undersized records and truncated coefficient/sign payloads before GPU use |
 | `0006-scaled-encode-error-cleanup` | Complete queued scaling and release external images when encoding fails |
 | `0007-scaled-encode-precision` | Replace cached scaler planes when intermediate precision changes |
+| `0008-cpu-plane-format-cache` | Replace CPU image caches when sample storage or planar/NV12 layout changes |
+| `0009-frame-context-bounds` | Reject negative indexes in all frame-context entry points |
 
 `pyrowave_image_create_owned_fd` consumes an imported DMA-BUF
 descriptor on every outcome, tracking consumption at successful Vulkan memory
@@ -95,12 +96,18 @@ the tests that do not require a GPU. Sources and build outputs stay in the image
 ## Native validation
 
 From the repository root, build the official tools against the same patched
-codec used by the Rust crate:
+codec used by the Rust crate and check argument validation without a GPU:
+
+```sh
+cmake -S pyrowave-sys -B target/native-tools -DCMAKE_BUILD_TYPE=Release
+cmake --build target/native-tools --target pyrowave-c-test pyrowave-c-interop-test pyrowave-device-validation pyrowave-seam-test pyrowave-decode --parallel 8
+target/native-tools/pyrowave-seam-test --contexts
+```
+
+On a compatible Vulkan GPU, run:
 
 ```sh
 cargo test --workspace --all-features -- --ignored --nocapture
-cmake -S pyrowave-sys -B target/native-tools -DCMAKE_BUILD_TYPE=Release
-cmake --build target/native-tools --target pyrowave-c-test pyrowave-c-interop-test pyrowave-device-validation pyrowave-seam-test pyrowave-decode --parallel 8
 target/native-tools/pyrowave-c-test
 target/native-tools/pyrowave-c-interop-test
 target/native-tools/pyrowave-device-validation --roundtrip
@@ -115,3 +122,5 @@ readiness and invalid arguments. The interop test exercises shared Vulkan
 devices, imported resources and synchronization. The decoder accepts upstream's
 versioned `PWV1` disk container. Verify output frame count and dimensions: it can return success after
 malformed input.
+The seam test also covers CPU plane depth/layout changes in both frame contexts,
+decoded samples and output buffer tails. `--formats` runs that regression alone.

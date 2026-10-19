@@ -15,8 +15,6 @@ impl Decoder {
 	/// Borrow the native decoder for features exposed through [`crate::sys`].
 	/// Calls must use [`crate::with_native`]. Keep this decoder alive, do not
 	/// destroy its handle, and finish work using borrowed resources before reuse.
-	/// Use a separate native decoder for higher precision CPU readback: this
-	/// wrapper's cached CPU output planes must remain eight-bit.
 	pub fn as_raw(&self) -> ffi::pyrowave_decoder {
 		self.handle
 	}

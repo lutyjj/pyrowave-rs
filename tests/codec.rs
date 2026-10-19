@@ -36,12 +36,6 @@ fn roundtrip_retains_device_and_accepts_unaligned_packets() {
 				sys::pyrowave_result_PYROWAVE_SUCCESS
 			);
 			let input = [vec![luma; pixels], vec![112; chroma_pixels], vec![140; chroma_pixels]];
-			for invalid_budget in [0, 4, 7] {
-				assert!(matches!(
-					encoder.encode_cpu(input.each_ref().map(Vec::as_slice), invalid_budget),
-					Err(pyrowave::Error::InvalidInput(_))
-				));
-			}
 			let encoded = encoder.encode_cpu(input.each_ref().map(Vec::as_slice), budget).unwrap();
 			assert!(encoded.len() <= budget, "native rate control exceeded its budget");
 			let mut unaligned = vec![0];
@@ -67,5 +61,53 @@ fn roundtrip_retains_device_and_accepts_unaligned_packets() {
 		assert!(decoder.push_packet(&[0; 3]).is_err());
 		decoder.clear();
 		assert!(!decoder.is_ready(false));
+	}
+}
+
+#[test]
+#[ignore = "requires a compatible Vulkan GPU"]
+fn cpu_budget_results_match_upstream() {
+	let format = VideoFormat {
+		width: 128,
+		height: 128,
+		chroma: ChromaSampling::Yuv420,
+	};
+	let device = Device::new().unwrap();
+	let mut encoder = Encoder::new(device.clone(), format).unwrap();
+	let native = Encoder::new(device, format).unwrap();
+	let input = [vec![96u8; 128 * 128], vec![128; 64 * 64], vec![128; 64 * 64]];
+	let buffers = sys::pyrowave_cpu_buffer {
+		data: input.each_ref().map(|plane| plane.as_ptr().cast_mut().cast()),
+		row_stride_in_bytes: [128, 64, 64],
+		plane_size_in_bytes: [128 * 128, 64 * 64, 64 * 64],
+		width: 128,
+		height: 128,
+		format: sys::pyrowave_cpu_buffer_format_PYROWAVE_CPU_BUFFER_FORMAT_YUV420P,
+	};
+	for budget in [0, 3, 4, 7, 8, 32768] {
+		let rate = sys::pyrowave_rate_control {
+			maximum_bitstream_size: budget,
+		};
+		// SAFETY: the fixed eight-bit planes cover their layouts and stay live.
+		let expected = with_native(|| unsafe { sys::pyrowave_encoder_encode_cpu(native.as_raw(), &buffers, &rate) });
+		if expected == sys::pyrowave_result_PYROWAVE_SUCCESS {
+			let mut packets = 0;
+			// SAFETY: readback follows a successful encode and waits for completion.
+			assert_eq!(
+				with_native(|| unsafe {
+					sys::pyrowave_encoder_compute_num_packets(native.as_raw(), usize::MAX / 2, &mut packets)
+				}),
+				sys::pyrowave_result_PYROWAVE_SUCCESS
+			);
+		}
+		let actual = encoder.encode_cpu(input.each_ref().map(Vec::as_slice), budget);
+		if expected == sys::pyrowave_result_PYROWAVE_SUCCESS {
+			assert!(actual.is_ok(), "budget {budget}: {actual:?}");
+		} else {
+			assert!(
+				matches!(actual, Err(pyrowave::Error::Native { code, .. }) if code == expected),
+				"budget {budget}: {actual:?}, upstream returned {expected}"
+			);
+		}
 	}
 }

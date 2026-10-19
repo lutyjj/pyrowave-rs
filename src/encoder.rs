@@ -100,7 +100,9 @@ impl Encoder {
 	/// of network packet size. The returned codec records remain valid until the
 	/// next mutable access to the encoder. GPU work completes before this returns.
 	pub fn encode_cpu(&mut self, planes: [&[u8]; 3], maximum_bytes: usize) -> Result<&[u8]> {
-		let rate = Self::rate_control(maximum_bytes)?;
+		let rate = ffi::pyrowave_rate_control {
+			maximum_bitstream_size: maximum_bytes,
+		};
 		let mut buffers = ffi::pyrowave_cpu_buffer {
 			width: self.format.width as i32,
 			height: self.format.height as i32,
@@ -151,7 +153,9 @@ impl Encoder {
 			return Err(Error::InvalidInput("image and encoder belong to different devices"));
 		}
 
-		let rate = Self::rate_control(maximum_bytes)?;
+		let rate = ffi::pyrowave_rate_control {
+			maximum_bitstream_size: maximum_bytes,
+		};
 		let scaling = ffi::pyrowave_scaled_encode_info {
 			view: image.view,
 			input_color_space: match scale.input_color_space {
@@ -195,15 +199,6 @@ impl Encoder {
 			"encoding imported image",
 		)?;
 		self.bitstream()
-	}
-
-	fn rate_control(maximum_bytes: usize) -> Result<ffi::pyrowave_rate_control> {
-		if maximum_bytes < 8 || maximum_bytes > u32::MAX as usize {
-			return Err(Error::InvalidInput("frame budget must be between 8 and u32::MAX bytes"));
-		}
-		Ok(ffi::pyrowave_rate_control {
-			maximum_bitstream_size: maximum_bytes,
-		})
 	}
 
 	fn bitstream(&mut self) -> Result<&[u8]> {

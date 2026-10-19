@@ -1,0 +1,24 @@
+Free the device when inherited instance or device initialization fails.
+
+pyrowave_create_device() returned without deleting it, unlike
+pyrowave_create_device_by_compat() on its failure paths.
+
+--- a/pyrowave_c.cpp
++++ b/pyrowave_c.cpp
+@@ -240,10 +240,16 @@
+ 	dev->context.set_device_factory(&device);
+ 
+ 	if (!dev->context.init_instance(nullptr, 0))
++	{
++		delete dev;
+ 		return PYROWAVE_ERROR_NO_VULKAN;
++	}
+ 
+ 	if (!dev->context.init_device(info->physical_device, VK_NULL_HANDLE, nullptr, 0))
++	{
++		delete dev;
+ 		return PYROWAVE_ERROR_NO_VULKAN;
++	}
+ 
+ 	ContextOptions context_opts = {};
+ 	context_opts.memory_priorities = false;

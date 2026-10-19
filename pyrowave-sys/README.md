@@ -1,16 +1,16 @@
 # PyroWave native bindings
 
 This crate builds the official PyroWave 1.0 C++ codec and generates bindings for
-its complete C API. [`pyrowave`](../README.md) owns Rust resource lifetimes and
+its complete C API. [`pyrowave`](../README.md) manages resource lifetimes in Rust and
 re-exports these bindings as `pyrowave::sys`.
-Distribution uses Git checkouts or path dependencies; registry publishing is disabled.
+Use a Git checkout or path dependency; registry publishing is disabled.
 
 ## API surface
 
-Bindgen follows `pyrowave.h`; native functionality does not depend on a matching
-convenience method. A generated test takes the address of every function in
-upstream's `pyrowave-shared.def` and checks that Rust declarations and native
-symbols link together, without requiring a GPU.
+Bindgen generates bindings from `pyrowave.h`, so the full native API is available
+even when the wrapper has no convenience method. A generated test takes the
+address of every function in upstream's `pyrowave-shared.def` and checks that
+each Rust declaration links to its native symbol. This test runs without a GPU.
 
 | Upstream capability | Rust access |
 | --- | --- |
@@ -23,21 +23,21 @@ symbols link together, without requiring a GPU.
 | GPU planes, RGB conversion, scaling, crop, dither and full/narrow YCbCr range | `sys`; `Encoder::encode_image()` handles imported RGB with full-range output |
 | Frame contexts and asynchronous readback | `sys` |
 | Packet boundaries, padding, critical packets, active blocks and mapped bitstreams | `sys`; the wrapper returns one contiguous frame and counts active blocks |
-| Packet ingestion, readiness and partial frames with sideband information | `sys`; `Decoder` handles ingestion and ordinary readiness |
+| Packet ingestion, readiness and partial frames with sideband information | `sys`; `Decoder` handles ingestion and readiness |
 | GPU decoder output and synchronous/asynchronous CPU output at supported depths | `sys`; `Decoder::decode_cpu()` reads eight-bit planes synchronously |
 | Per-stage timings and upstream's bitrate model | `Device::performance_report()` and `estimate_bitrate()` |
 
 `Device`, `Encoder`, `Decoder` and `ImportedImage` expose borrowed `as_raw()`
-handles. Keep their owners alive, do not destroy borrowed handles, and use
-`pyrowave::with_native()` for raw calls that share a process with the wrappers.
-The backend shares Vulkan dispatch state across devices. The synchronization
-closure must not call wrapper methods, which acquire the same lock.
+handles. Keep their owners alive and do not destroy borrowed handles. Run raw
+calls inside `pyrowave::with_native()` whenever wrappers are used in the same
+process. The backend shares Vulkan dispatch state across devices. The closure
+must not call wrapper methods because they acquire the same lock.
 
-Raw operations must preserve the wrapper's configured format and complete work
-using borrowed resources before reuse.
-Device command-buffer overrides must be cleared before returning to wrapper
-methods. Applications own any Vulkan handles inherited by a native device and
-must retain them until all wrappers using that device have dropped.
+Raw calls must preserve the wrapper's configured format. Finish work that uses
+borrowed resources before reusing them, and clear device command-buffer overrides
+before returning to wrapper methods. Your application owns any Vulkan handles
+inherited by a native device. Keep those handles alive until all wrappers using
+that device have dropped.
 
 ## Build and upstream updates
 
@@ -50,23 +50,25 @@ git -C pyrowave-sys/upstream/Granite submodule update --init third_party/volk th
 ```
 
 CMake copies the sources into its build directory and applies `patches/*.patch`.
-The source submodules stay clean. The native build needs no network after initialization.
-The build requires CMake, a C++ compiler, `patch` and libclang. Exported or vendored
-sources can build without Git metadata. `UPSTREAM_REVISIONS` records the source
-pins and supplies the generated vendor manifest, `UPSTREAM_REVISION` and
-`BITSTREAM_ID`. Git checkouts verify those pins against the submodules. To update
-the native source, update the submodule Git links and `UPSTREAM_REVISIONS` together,
-then validate the build. Preserve all upstream license notices.
+The source submodules stay clean. After initialization, the native build needs
+no network. Building requires CMake, a C++ compiler, `patch` and libclang.
+Exported or vendored sources can build without Git metadata.
+
+`UPSTREAM_REVISIONS` records the source pins used for the generated vendor
+manifest, `UPSTREAM_REVISION` and `BITSTREAM_ID`. Builds from Git checkouts verify
+those pins against the submodules. For an upstream refresh, change the submodule
+Git links and `UPSTREAM_REVISIONS` together, then validate the build. Preserve all
+upstream license notices.
 
 The build uses upstream's encoder buffer pool and compiled shaders. Local patches
-retain correctness and ownership fixes that the pinned implementation needs:
+fix correctness and ownership issues in the pinned code:
 
 | Patch | Reason to retain it |
 | --- | --- |
 | `0001-encoder-readback-bounds` | Bound copies after a host buffer grows but its GPU allocation fails |
 | `0002-payload-data-444-sizing` | Size scratch storage for high-entropy 4:4:4 frames |
-| `0003-granite-dmabuf-import-without-format-query` | Allow NVIDIA proprietary-driver DMA-BUF modifiers omitted from its format query |
-| `0004-owned-dmabuf-import` | Give the Rust import boundary deterministic descriptor ownership |
+| `0003-granite-dmabuf-import-without-format-query` | Import DMA-BUF modifiers that NVIDIA's proprietary driver omits from its format query |
+| `0004-owned-dmabuf-import` | Consume owned DMA-BUF descriptors on every outcome |
 | `0005-decoder-record-progress` | Reject undersized records and truncated coefficient/sign payloads before GPU use |
 | `0006-scaled-encode-error-cleanup` | Complete queued scaling and release external images when encoding fails |
 | `0007-scaled-encode-precision` | Replace cached scaler planes when intermediate precision changes |
@@ -74,10 +76,10 @@ retain correctness and ownership fixes that the pinned implementation needs:
 | `0009-frame-context-bounds` | Reject negative indexes in all frame-context entry points |
 
 `pyrowave_image_create_owned_fd` consumes an imported DMA-BUF
-descriptor on every outcome, tracking consumption at successful Vulkan memory
-allocation. The standard `pyrowave_image_create` entry point keeps upstream
-ownership semantics. These patches do not change the bitstream format.
-`quality.c` gives linkage to upstream's bitrate model, a static function in
+descriptor on every outcome. It tracks consumption when Vulkan memory allocation
+succeeds. The standard `pyrowave_image_create` entry point keeps upstream's
+ownership rules. These patches do not change the bitstream format.
+`quality.c` exposes upstream's bitrate model, a static function in
 `eval-results/pyrowave_regression_results.h`.
 Adapted patches carry [third-party notices](THIRD-PARTY-NOTICES).
 
@@ -95,8 +97,8 @@ the tests that do not require a GPU. Sources and build outputs stay in the image
 
 ## Native validation
 
-From the repository root, build the official tools against the same patched
-codec used by the Rust crate and check argument validation without a GPU:
+From the repository root, build the official tools against the Rust crate's
+patched codec. Then check argument validation without a GPU:
 
 ```sh
 cmake -S pyrowave-sys -B target/native-tools -DCMAKE_BUILD_TYPE=Release
@@ -115,12 +117,14 @@ target/native-tools/pyrowave-seam-test
 target/native-tools/pyrowave-decode capture.pyrowave capture.y4m
 ```
 
-These tools require a compatible Vulkan GPU. The upstream C test checks 4K
-roundtrips, rate budgets, decoded image quality, both chroma layouts, higher
-precision CPU planes, frame contexts, asynchronous readback, partial-frame
-readiness and invalid arguments. The interop test exercises shared Vulkan
-devices, imported resources and synchronization. The decoder accepts upstream's
-versioned `PWV1` disk container. Verify output frame count and dimensions: it can return success after
-malformed input.
-The seam test also covers CPU plane depth/layout changes in both frame contexts,
-decoded samples and output buffer tails. `--formats` runs that regression alone.
+The upstream C test checks 4K roundtrips, rate budgets and decoded image quality.
+It covers both chroma layouts, higher precision CPU planes, frame contexts,
+asynchronous readback, partial-frame readiness and invalid arguments. The interop
+test exercises shared Vulkan devices, imported resources and synchronization.
+
+The seam test checks CPU plane depth/layout changes in both frame contexts,
+including decoded samples and output buffer tails. `--formats` runs only this
+regression.
+
+The decoder accepts upstream's versioned `PWV1` disk container. Verify output
+frame count and dimensions: malformed input can still return success.

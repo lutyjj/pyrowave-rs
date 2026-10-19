@@ -1,0 +1,32 @@
+Reject records shorter than their header before accepting duplicates.
+
+A duplicate with payload_words == 0 otherwise makes no parser progress.
+
+--- a/pyrowave_decoder.cpp
++++ b/pyrowave_decoder.cpp
+@@ -128,6 +128,12 @@
+ 
+ bool Decoder::Impl::decode_packet(const BitstreamHeader *header)
+ {
++	if (sizeof(*header) / sizeof(uint32_t) > header->payload_words)
++	{
++		LOGE("payload_words is not large enough.\n");
++		return false;
++	}
++
+ 	auto &offset = dequant_offset_buffer_cpu[header->block_index];
+ 	if (offset == UINT32_MAX)
+ 	{
+@@ -140,12 +146,6 @@
+ 	}
+ 
+ 	auto *payload_words = reinterpret_cast<const uint32_t *>(header);
+-
+-	if (sizeof(*header) / sizeof(uint32_t) > header->payload_words)
+-	{
+-		LOGE("payload_words is not large enough.\n");
+-		return false;
+-	}
+ 
+ 	payload_data_cpu.insert(
+ 			payload_data_cpu.end(),

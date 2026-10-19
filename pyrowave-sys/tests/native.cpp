@@ -45,13 +45,20 @@ static void test_frame_context_bounds()
 	pyrowave_encoder_opaque encoder;
 	pyrowave_decoder_opaque decoder;
 	decoder.pyro_device = &device;
+	decoder.chroma = ChromaSubsampling::Chroma420;
+	decoder.width = decoder.height = 128;
 	pyrowave_cpu_buffer buffers = {};
+	buffers.width = buffers.height = 128;
+	buffers.format = PYROWAVE_CPU_BUFFER_FORMAT_YUV420P;
 	for (int context : {INT_MIN, -1, PYROWAVE_MAX_FRAME_CONTEXTS, INT_MAX})
 	{
 		require(pyrowave_encoder_set_frame_context(&encoder, context) == PYROWAVE_ERROR_INVALID_ARGUMENT,
 		        "rejecting invalid encoder frame context");
+		decoder.ycbcr_scaling_factor = 0.5f;
 		require(pyrowave_decoder_decode_cpu_buffer_async(&decoder, &buffers, context) == PYROWAVE_ERROR_INVALID_ARGUMENT,
 		        "rejecting invalid asynchronous decoder frame context");
+		require(decoder.ycbcr_scaling_factor == 0.5f,
+		        "rejecting invalid frame context before changing decoder state");
 		require(pyrowave_decoder_decode_cpu_buffer_complete(&decoder, &buffers, context) == PYROWAVE_ERROR_INVALID_ARGUMENT,
 		        "rejecting invalid decoder completion frame context");
 	}

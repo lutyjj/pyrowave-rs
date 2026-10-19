@@ -51,10 +51,11 @@ git submodule update --init pyrowave-sys/upstream/pyrowave pyrowave-sys/upstream
 git -C pyrowave-sys/upstream/Granite submodule update --init third_party/volk third_party/khronos/vulkan-headers
 ```
 
-CMake assembles unmodified sources in its build directory. Native code and
-compiled shaders retain upstream behavior, including defects and limitations.
+CMake applies the optional native candidates in `patches/` to a build copy.
+The upstream submodules stay unmodified. Each candidate is a separate commit
+on this branch and can be dropped when the upstream pin includes its fix.
 After initialization, the native build needs no network. Building requires
-CMake, a C++ compiler and libclang.
+CMake, a C++ compiler, libclang and GNU `patch`.
 Exported or vendored sources can build without Git metadata.
 
 `UPSTREAM_REVISIONS` records the source pins used for the generated vendor

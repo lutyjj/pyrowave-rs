@@ -17,6 +17,16 @@ file(COPY ${UPSTREAM_DIR}/pyrowave/ DESTINATION ${PYROWAVE_VENDOR_DIR}
 file(COPY ${UPSTREAM_DIR}/Granite/ DESTINATION ${PYROWAVE_VENDOR_DIR}/Granite
 	PATTERN ".git" EXCLUDE PATTERN ".github" EXCLUDE)
 
+find_program(PATCH_EXECUTABLE patch REQUIRED)
+file(GLOB NATIVE_PATCHES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/patches/*.patch)
+foreach(NATIVE_PATCH IN LISTS NATIVE_PATCHES)
+	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${NATIVE_PATCH})
+	execute_process(COMMAND ${PATCH_EXECUTABLE} --batch --forward --fuzz=0 -p1 -i ${NATIVE_PATCH}
+		WORKING_DIRECTORY ${PYROWAVE_VENDOR_DIR} COMMAND_ERROR_IS_FATAL ANY)
+	cmake_path(GET NATIVE_PATCH FILENAME NATIVE_PATCH_NAME)
+	string(APPEND APPLIED_PATCHES "patch: ${NATIVE_PATCH_NAME}\n")
+endforeach()
+
 # COPY preserves old timestamps, which can leave objects from another pin or patch set.
 file(GLOB_RECURSE PYROWAVE_VENDOR_CODE
 	${PYROWAVE_VENDOR_DIR}/*.c ${PYROWAVE_VENDOR_DIR}/*.cpp
@@ -51,7 +61,7 @@ foreach(ENTRY IN LISTS REVISIONS)
 	endif()
 	string(APPEND PROVENANCE "${SOURCE}: ${REVISION}\n")
 endforeach()
-file(WRITE ${PYROWAVE_VENDOR_DIR}/VENDOR.txt "${PROVENANCE}")
+file(WRITE ${PYROWAVE_VENDOR_DIR}/VENDOR.txt "${PROVENANCE}${APPLIED_PATCHES}")
 
 # Granite is only the Vulkan backend PyroWave is written against: no renderer,
 # windowing, runtime shader compiler, FFmpeg or audio.

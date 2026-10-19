@@ -1,5 +1,5 @@
 //! Build the pinned PyroWave C API as static archives through CMake and generate
-//! Rust bindings for it. CMake assembles unmodified sources in its build directory.
+//! Rust bindings for it. CMake applies this branch's native patches to a build copy.
 //!
 //! Everything compiles from initialized submodules, including Vulkan headers, so
 //! the build needs no network and no system PyroWave; bindgen needs a libclang.
@@ -11,6 +11,7 @@ use std::process::Command;
 fn main() {
 	println!("cargo:rerun-if-changed=wrapper.h");
 	println!("cargo:rerun-if-changed=quality.c");
+	println!("cargo:rerun-if-changed=patches");
 	println!("cargo:rerun-if-changed=CMakeLists.txt");
 	println!("cargo:rerun-if-changed=UPSTREAM_REVISIONS");
 	println!("cargo:rerun-if-changed=upstream");

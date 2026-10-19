@@ -3,7 +3,13 @@
 Thin Rust bindings to the official [PyroWave](https://github.com/Themaister/pyrowave)
 1.0 Vulkan codec, using its C++ implementation and shaders.
 
-Building requires Linux, Rust 1.87+, CMake, a C++ compiler and libclang.
+This is the optional `patches` branch. Its native fix collection lives in
+[draft PR #1](https://github.com/lutyjj/pyrowave-rs/pull/1), which stays unmerged.
+Use `main` for upstream behavior. Both branches expose the same Rust API.
+`UPSTREAM_REVISION` and `BITSTREAM_ID` name the upstream pin the patches apply to;
+the build's `VENDOR.txt` lists the applied patches.
+
+Building requires Linux, Rust 1.87+, CMake, a C++ compiler, libclang and GNU `patch`.
 Encoding and decoding require a compatible Vulkan GPU.
 Initialize the [upstream submodules](pyrowave-sys/README.md) before building.
 

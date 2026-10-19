@@ -10,8 +10,6 @@ pub enum Error {
 	InvalidInput(&'static str),
 	#[error("{0}")]
 	InvalidOutput(&'static str),
-	#[error("duplicating DMA-BUF descriptor: {0}")]
-	Io(#[from] std::io::Error),
 }
 
 pub(crate) fn check(result: ffi::pyrowave_result, operation: &'static str) -> Result<()> {

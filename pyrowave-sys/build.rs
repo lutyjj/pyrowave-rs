@@ -1,5 +1,5 @@
 //! Build the pinned PyroWave C API as static archives through CMake and generate
-//! Rust bindings for it. CMake owns the patched copy in its build directory.
+//! Rust bindings for it. CMake assembles unmodified sources in its build directory.
 //!
 //! Everything compiles from initialized submodules, including Vulkan headers, so
 //! the build needs no network and no system PyroWave; bindgen needs a libclang.
@@ -12,10 +12,8 @@ fn main() {
 	println!("cargo:rerun-if-changed=wrapper.h");
 	println!("cargo:rerun-if-changed=quality.c");
 	println!("cargo:rerun-if-changed=CMakeLists.txt");
-	println!("cargo:rerun-if-changed=THIRD-PARTY-NOTICES");
 	println!("cargo:rerun-if-changed=UPSTREAM_REVISIONS");
 	println!("cargo:rerun-if-changed=upstream");
-	println!("cargo:rerun-if-changed=patches");
 
 	let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
 	// Submodule HEADs live outside their source trees. Track them when Git

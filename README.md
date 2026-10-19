@@ -3,7 +3,7 @@
 Thin Rust bindings to the official [PyroWave](https://github.com/Themaister/pyrowave)
 1.0 Vulkan codec, using its C++ implementation and shaders.
 
-Building requires Linux, Rust 1.87+, `patch`, CMake, a C++ compiler and libclang.
+Building requires Linux, Rust 1.87+, CMake, a C++ compiler and libclang.
 Encoding and decoding require a compatible Vulkan GPU.
 Initialize the [upstream submodules](pyrowave-sys/README.md) before building.
 
@@ -12,7 +12,8 @@ Initialize the [upstream submodules](pyrowave-sys/README.md) before building.
 pyrowave = { path = "../pyrowave-rs" }
 ```
 
-Enable `features = ["dmabuf"]` for DMA-BUF imports and GPU RGB encoding.
+Enable `features = ["dmabuf"]` for encoding imported GPU RGB images.
+Create images through `sys` and transfer ownership with `ImportedImage::from_raw()`.
 Run `cargo run --example roundtrip` to check encoding and decoding.
 
 Bindings for the complete C API are generated in the `pyrowave-sys` crate and
@@ -33,5 +34,5 @@ The fingerprint changes on every upstream update, even when the packet format
 stays the same. Verify interoperability before accepting a different implementation
 revision in an existing protocol.
 
-[MIT](LICENSE), with [third-party notices](pyrowave-sys/THIRD-PARTY-NOTICES).
+[MIT](LICENSE).
 Upstream submodules retain their own licenses.

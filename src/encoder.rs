@@ -136,9 +136,10 @@ impl Encoder {
 	///
 	/// # Safety
 	/// The producer must have relinquished ownership to `VK_QUEUE_FAMILY_EXTERNAL`
-	/// in GENERAL layout. Keep the backing allocation alive until this method
-	/// returns, including on error. Submitted work completes and releases
-	/// ownership back to the external queue family before returning.
+	/// in GENERAL layout. Keep the backing allocation alive until GPU completion.
+	/// On success, readback completes before returning. On native error, follow
+	/// upstream's completion and ownership requirements before reusing or
+	/// destroying the image.
 	#[cfg(all(feature = "dmabuf", target_os = "linux"))]
 	pub unsafe fn encode_image(
 		&mut self,

@@ -1,7 +1,7 @@
 //! Rust ownership for the official PyroWave Vulkan codec.
 //!
 //! [`Device`], [`Encoder`], [`Decoder`] and imported images keep their native
-//! resources alive and stay on one thread. Encoding completes before returning.
+//! resources alive and stay on one thread. Successful encoding waits for readback.
 //! Applications own capture synchronization, bitrate policy and transport.
 //! [`sys`] exposes the complete native API. Use [`with_native`] to serialize
 //! raw calls with the ownership wrappers, and keep their resources alive.
@@ -22,7 +22,7 @@ pub use encoder::{Encoder, InputColorSpace, IntermediatePrecision, OutputColorSp
 pub use error::{Error, Result};
 pub use format::{ChromaSampling, VideoFormat};
 #[cfg(all(feature = "dmabuf", target_os = "linux"))]
-pub use image::{DmabufDescriptor, ImportedImage, RgbFormat};
+pub use image::ImportedImage;
 pub use pyrowave_sys as sys;
 pub use quality::{QUALITY_RANGE, QualityTarget, estimate_bitrate};
 

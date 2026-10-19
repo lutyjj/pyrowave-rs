@@ -69,34 +69,3 @@ fn roundtrip_retains_device_and_accepts_unaligned_packets() {
 		assert!(!decoder.is_ready(false));
 	}
 }
-
-#[test]
-#[ignore = "requires a compatible Vulkan GPU"]
-fn rejects_truncated_control_coefficients_and_signs() {
-	let mut decoder = Decoder::new(
-		Device::new().unwrap(),
-		VideoFormat {
-			width: 128,
-			height: 128,
-			chroma: ChromaSampling::Yuv444,
-		},
-	)
-	.unwrap();
-	// Native little-endian records: ballot, word count/sequence, quantizer/index,
-	// then two control bytes and one quantizer byte per populated 8x8 block.
-	let truncated: &[&[u8]] = &[
-		&[0xff, 0xff, 2, 0, 0, 0, 0, 0],
-		&[1, 0, 3, 0, 0, 0, 0, 0, 3, 0, 0, 0xff],
-		&[1, 0, 3, 0, 0, 0, 0, 0, 1, 0, 0, 0xff],
-	];
-	for packet in truncated {
-		decoder.clear();
-		assert!(decoder.push_packet(packet).is_err());
-	}
-	let valid = [1, 0, 4, 0, 0, 0, 0, 0, 1, 0, 0, 0xff, 0, 0, 0, 0];
-	decoder.push_packet(&valid).unwrap();
-	// Validation still applies when the block is already present.
-	for packet in truncated {
-		assert!(decoder.push_packet(packet).is_err());
-	}
-}

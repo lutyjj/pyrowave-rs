@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(pyrowave-sys LANGUAGES CXX C)
 
-find_program(PATCH_EXECUTABLE patch REQUIRED)
 find_package(Git QUIET)
 set(UPSTREAM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/upstream)
 if(NOT EXISTS ${UPSTREAM_DIR}/pyrowave/pyrowave.h OR
@@ -10,21 +9,13 @@ if(NOT EXISTS ${UPSTREAM_DIR}/pyrowave/pyrowave.h OR
 	message(FATAL_ERROR "Initialize the upstream submodules as described in pyrowave-sys/README.md")
 endif()
 
-# Apply compatibility patches to an owned build copy, keeping Git links clean.
+# Assemble the pinned codec and backend in the layout upstream expects.
 set(PYROWAVE_VENDOR_DIR ${CMAKE_CURRENT_BINARY_DIR}/vendor/pyrowave)
 file(REMOVE_RECURSE ${PYROWAVE_VENDOR_DIR})
 file(COPY ${UPSTREAM_DIR}/pyrowave/ DESTINATION ${PYROWAVE_VENDOR_DIR}
 	PATTERN ".git" EXCLUDE PATTERN ".github" EXCLUDE)
 file(COPY ${UPSTREAM_DIR}/Granite/ DESTINATION ${PYROWAVE_VENDOR_DIR}/Granite
 	PATTERN ".git" EXCLUDE PATTERN ".github" EXCLUDE)
-configure_file(THIRD-PARTY-NOTICES ${PYROWAVE_VENDOR_DIR}/THIRD-PARTY-NOTICES COPYONLY)
-file(GLOB LOCAL_PATCHES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/patches/*.patch)
-foreach(PATCH IN LISTS LOCAL_PATCHES)
-	execute_process(
-		COMMAND ${PATCH_EXECUTABLE} --batch --forward -p1 -i ${PATCH}
-		WORKING_DIRECTORY ${PYROWAVE_VENDOR_DIR}
-		COMMAND_ERROR_IS_FATAL ANY)
-endforeach()
 
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/UPSTREAM_REVISIONS)
 file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/UPSTREAM_REVISIONS REVISIONS)
@@ -108,13 +99,6 @@ target_link_libraries(pyrowave-c-interop-test PRIVATE pyrowave-capi granite-vulk
 
 add_executable(pyrowave-device-validation EXCLUDE_FROM_ALL ${PYROWAVE_VENDOR_DIR}/pyrowave_device_validation.cpp)
 target_link_libraries(pyrowave-device-validation PRIVATE pyrowave-capi granite-util granite-volk-headers)
-
-add_executable(pyrowave-seam-test EXCLUDE_FROM_ALL tests/native.cpp)
-target_include_directories(pyrowave-seam-test PRIVATE
-	${PYROWAVE_VENDOR_DIR}
-	${PYROWAVE_VENDOR_DIR}/shaders
-	${PYROWAVE_VENDOR_DIR}/Granite/video)
-target_link_libraries(pyrowave-seam-test PRIVATE pyrowave-capi pyrowave granite-vulkan granite-math)
 
 add_executable(pyrowave-decode EXCLUDE_FROM_ALL
 	${PYROWAVE_VENDOR_DIR}/decode.cpp

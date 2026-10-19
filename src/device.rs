@@ -59,8 +59,9 @@ impl Device {
 	///
 	/// # Safety
 	/// `handle` must be a live, non-null device from the linked native library,
-	/// with no other owner that will destroy it. Any Vulkan resources borrowed
-	/// by the native device must outlive this device and all its clones.
+	/// with no other owner that will destroy it. Borrowed Vulkan handles,
+	/// creation-info pointers and callback data must outlive this device and
+	/// all its clones, as required by upstream's device creation contract.
 	pub unsafe fn from_raw(handle: ffi::pyrowave_device) -> Self {
 		Self {
 			inner: Rc::new(DeviceInner { handle }),
@@ -69,7 +70,7 @@ impl Device {
 
 	/// Borrow the native handle without transferring ownership.
 	/// Use [`crate::with_native`] for calls through this handle. Do not destroy
-	/// it, and restore borrowed command buffers before using wrapper methods.
+	/// it, and clear command-buffer overrides before using wrapper methods.
 	pub fn as_raw(&self) -> ffi::pyrowave_device {
 		self.inner.handle
 	}

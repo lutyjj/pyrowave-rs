@@ -1,0 +1,20 @@
+Size the encoder payload buffer for the worst case.
+
+The quantizer writes a sign byte and up to msb + 1 bit-planes for every 4x2
+group of coefficients, with no bound check. The filter gains and quant
+resolutions bound that at 2.35 bytes per aligned pixel for 4:2:0 and 4.22 for
+4:4:4, above the 2 allocated. High-detail input overruns the buffer.
+
+Based on: https://git.unom.io/unom/punktfunk/src/commit/5bc6ade3afdd47f7013ecda99992d1e62c7e64ce/crates/pyrowave-sys/patches/0001-payload-data-444-sizing.patch
+License: MIT; see ../THIRD-PARTY-NOTICES.
+
+--- a/pyrowave_encoder.cpp
++++ b/pyrowave_encoder.cpp
+@@ -192,7 +192,7 @@
+ 	device->set_name(*meta_buffer, "meta-buffer");
+ 
+ 	// Worst case estimate.
+-	info.size = aligned_width * aligned_height * 2;
++	info.size = aligned_width * aligned_height * (chroma == ChromaSubsampling::Chroma444 ? 5 : 3);
+ 	payload_data = device->create_buffer(info);
+ 	device->set_name(*payload_data, "payload-data");

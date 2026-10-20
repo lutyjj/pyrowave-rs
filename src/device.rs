@@ -1,5 +1,6 @@
 use std::ffi::{CStr, c_char, c_void};
 use std::rc::Rc;
+use std::sync::{PoisonError, RwLock};
 
 use pyrowave_sys as ffi;
 
@@ -11,9 +12,9 @@ use crate::error::check;
 /// Clones share ownership. Codecs and images retain the device until they drop.
 /// This type is neither `Send` nor `Sync`: the native device needs external
 /// synchronization, so each device and its resources stay on one thread.
-/// Native calls from separate devices are serialized because the backend uses
-/// process-wide Vulkan dispatch state. Calls through `pyrowave-sys` must also
-/// be externally synchronized with this crate.
+/// Creating or destroying a device excludes all other native calls in the
+/// process. Other calls on separate devices may run concurrently. Calls through
+/// `pyrowave-sys` must use [`with_native`] when mixed with this crate.
 #[derive(Clone)]
 pub struct Device {
 	pub(crate) inner: Rc<DeviceInner>,
@@ -28,7 +29,7 @@ impl Device {
 		let mut handle = std::ptr::null_mut();
 		// SAFETY: the output pointer is live for the call.
 		check(
-			crate::device::with_native(|| unsafe { ffi::pyrowave_create_default_device(&mut handle) }),
+			with_native(|| unsafe { ffi::pyrowave_create_default_device(&mut handle) }),
 			"creating device",
 		)?;
 		Ok(Self {
@@ -49,7 +50,7 @@ impl Device {
 		}
 		let mut lines = Vec::new();
 		// SAFETY: the device is live and the callback only runs during this call.
-		crate::device::with_native(|| unsafe {
+		with_native_shared(|| unsafe {
 			ffi::pyrowave_device_report_performance_stats(self.as_raw(), Some(push), (&raw mut lines).cast(), reset);
 		});
 		lines
@@ -84,11 +85,23 @@ impl Device {
 impl Drop for DeviceInner {
 	fn drop(&mut self) {
 		// SAFETY: all codecs and images have released their strong references.
-		crate::device::with_native(|| unsafe { ffi::pyrowave_device_destroy(self.handle) });
+		with_native(|| unsafe { ffi::pyrowave_device_destroy(self.handle) });
 	}
 }
 
-/// Serialize native calls with all ownership wrappers in this crate.
+/// Device creation and destruction take this exclusively; other native calls
+/// share it, so work on separate devices is not serialized. Creation rewrites
+/// the backend's process-wide Vulkan dispatch state.
+///
+/// Destruction only reads that state. It takes the lock exclusively as a
+/// workaround for a driver defect: on NVIDIA 615.71.09, destroying separate
+/// devices concurrently hung inside `vkDestroyDevice` in 5 of 15 runs of
+/// `devices_on_separate_threads_create_encode_and_drop_concurrently`. Vulkan
+/// allows it and upstream does not serialize it. Relax this only after that
+/// test passes many consecutive runs with destruction shared.
+static NATIVE: RwLock<()> = RwLock::new(());
+
+/// Run raw native calls excluding every native call made by this crate.
 ///
 /// The backend shares Vulkan dispatch state across devices. Raw calls that
 /// create, use or destroy native resources must run inside this closure when
@@ -99,7 +112,57 @@ impl Drop for DeviceInner {
 /// lock is held until it returns. Native calls remain unsafe; retain borrowed
 /// resources until GPU completion and follow their upstream contracts.
 pub fn with_native<T>(call: impl FnOnce() -> T) -> T {
-	static NATIVE: std::sync::Mutex<()> = std::sync::Mutex::new(());
-	let _guard = NATIVE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+	let _guard = NATIVE.write().unwrap_or_else(PoisonError::into_inner);
 	call()
+}
+
+/// Run a native call that neither creates nor destroys a device, concurrently
+/// with other such calls. Creation and destruction must use [`with_native`].
+pub(crate) fn with_native_shared<T>(call: impl FnOnce() -> T) -> T {
+	let _guard = NATIVE.read().unwrap_or_else(PoisonError::into_inner);
+	call()
+}
+
+#[cfg(test)]
+mod tests {
+	use std::sync::atomic::{AtomicBool, Ordering};
+	use std::sync::mpsc;
+	use std::thread;
+	use std::time::Duration;
+
+	use super::{with_native, with_native_shared};
+
+	const WAIT: Duration = Duration::from_secs(5);
+
+	// One test, because concurrent tests would contend for the same process-wide lock.
+	#[test]
+	fn shared_calls_overlap_and_raw_calls_exclude_them() {
+		let (entered, inside) = mpsc::channel();
+		let (finish, finished) = mpsc::channel::<()>();
+		let holder = thread::spawn(move || {
+			with_native_shared(|| {
+				entered.send(()).unwrap();
+				finished.recv_timeout(WAIT).expect("the second shared call never ran");
+			})
+		});
+		inside.recv_timeout(WAIT).unwrap();
+		// Blocks until the holder's timeout if shared calls exclude each other.
+		with_native_shared(|| finish.send(()).unwrap());
+		holder.join().unwrap();
+
+		let (entered, inside) = mpsc::channel();
+		let released = AtomicBool::new(false);
+		thread::scope(|scope| {
+			scope.spawn(|| {
+				with_native(|| {
+					entered.send(()).unwrap();
+					// Widens the window in which a shared call could wrongly run here.
+					thread::sleep(Duration::from_millis(50));
+					released.store(true, Ordering::SeqCst);
+				})
+			});
+			inside.recv_timeout(WAIT).unwrap();
+			with_native_shared(|| assert!(released.load(Ordering::SeqCst), "a shared call ran inside with_native"));
+		});
+	}
 }

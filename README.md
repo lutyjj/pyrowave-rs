@@ -24,8 +24,8 @@ CPU planes, GPU decoder output, custom devices, queue priorities and synchroniza
 `Decoder::push_packet()` is unsafe: callers must supply valid upstream codec records.
 See the [API surface and native update guide](pyrowave-sys/README.md).
 
-Use `as_raw()` to borrow a wrapper's native handle and `with_native()` to serialize
-native calls with the wrappers. `Device::from_raw()` takes ownership of a device
+Use `as_raw()` to borrow a wrapper's native handle and `with_native()` to run raw
+native calls that exclude every wrapper call. `Device::from_raw()` takes ownership of a device
 created with upstream's advanced device creation functions. Raw callers must follow
 upstream's rules for resources, configuration and GPU completion.
 

@@ -58,7 +58,7 @@ impl Encoder {
 		let mut handle = std::ptr::null_mut();
 		// SAFETY: the device and both pointers remain live for the call.
 		check(
-			crate::device::with_native(|| unsafe { ffi::pyrowave_encoder_create(&info, &mut handle) }),
+			crate::device::with_native_shared(|| unsafe { ffi::pyrowave_encoder_create(&info, &mut handle) }),
 			"creating encoder",
 		)?;
 		Ok(Self {
@@ -86,7 +86,7 @@ impl Encoder {
 		let mut count = 0;
 		// SAFETY: the encoder is live and the native API validates the band count.
 		check(
-			crate::device::with_native(|| unsafe {
+			crate::device::with_native_shared(|| unsafe {
 				ffi::pyrowave_encoder_get_num_active_blocks(self.handle, bands.into(), &mut count)
 			}),
 			"counting active blocks",
@@ -124,7 +124,9 @@ impl Encoder {
 		// SAFETY: each plane covers its native layout; the native encoder only reads
 		// the input and copies it during this call. The device remains live.
 		check(
-			crate::device::with_native(|| unsafe { ffi::pyrowave_encoder_encode_cpu(self.handle, &buffers, &rate) }),
+			crate::device::with_native_shared(|| unsafe {
+				ffi::pyrowave_encoder_encode_cpu(self.handle, &buffers, &rate)
+			}),
 			"encoding CPU planes",
 		)?;
 		self.bitstream()
@@ -192,7 +194,7 @@ impl Encoder {
 		// SAFETY: the caller supplies the synchronization contract; both resources
 		// retain the same device and all pointers remain live during this call.
 		check(
-			crate::device::with_native(|| unsafe {
+			crate::device::with_native_shared(|| unsafe {
 				ffi::pyrowave_encoder_encode_gpu_scaled(self.handle, &ownership, &ownership, &scaling, &rate)
 			}),
 			"encoding imported image",
@@ -205,7 +207,7 @@ impl Encoder {
 		let mut count = 0;
 		// SAFETY: follows a successful encode. This call waits for GPU completion.
 		check(
-			crate::device::with_native(|| unsafe {
+			crate::device::with_native_shared(|| unsafe {
 				ffi::pyrowave_encoder_compute_num_packets(self.handle, boundary, &mut count)
 			}),
 			"sizing encoded frame",
@@ -221,7 +223,7 @@ impl Encoder {
 		// SAFETY: all output pointers are live. Only allocation sizes are used;
 		// the native packetizer owns serialization of the mapped codec data.
 		check(
-			crate::device::with_native(|| unsafe {
+			crate::device::with_native_shared(|| unsafe {
 				ffi::pyrowave_encoder_get_mapped_raw_bitstream(
 					self.handle,
 					&mut data,
@@ -243,7 +245,7 @@ impl Encoder {
 		// SAFETY: one descriptor was requested, and the output covers the native
 		// allocation plus its metadata. Native serialization runs synchronously.
 		check(
-			crate::device::with_native(|| unsafe {
+			crate::device::with_native_shared(|| unsafe {
 				ffi::pyrowave_encoder_packetize(
 					self.handle,
 					&mut packet,
@@ -271,6 +273,6 @@ impl Encoder {
 impl Drop for Encoder {
 	fn drop(&mut self) {
 		// SAFETY: the device is retained until after the native encoder is destroyed.
-		crate::device::with_native(|| unsafe { ffi::pyrowave_encoder_destroy(self.handle) });
+		crate::device::with_native_shared(|| unsafe { ffi::pyrowave_encoder_destroy(self.handle) });
 	}
 }

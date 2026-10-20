@@ -113,3 +113,41 @@ fn cpu_budget_results_match_upstream() {
 		}
 	}
 }
+
+#[test]
+#[ignore = "requires a compatible Vulkan GPU"]
+fn devices_on_separate_threads_create_encode_and_drop_concurrently() {
+	let format = VideoFormat {
+		width: 128,
+		height: 128,
+		chroma: ChromaSampling::Yuv420,
+	};
+	// Threads stuck in a driver call cannot be joined, so fail after a bound.
+	// The process may still hang on exit while the driver tears down.
+	let (done, finished) = std::sync::mpsc::channel();
+	for thread in 0..4 {
+		let done = done.clone();
+		std::thread::spawn(move || {
+			for _ in 0..8 {
+				let device = Device::new().unwrap();
+				let mut encoder = Encoder::new(device.clone(), format).unwrap();
+				let mut decoder = Decoder::new(device, format).unwrap();
+				let luma = 40 + 20 * thread as u8;
+				let input = [vec![luma; 128 * 128], vec![128; 64 * 64], vec![128; 64 * 64]];
+				let encoded = encoder.encode_cpu(input.each_ref().map(Vec::as_slice), 32768).unwrap();
+				// SAFETY: the records came from the linked encoder with the same format.
+				unsafe { decoder.push_packet(encoded) }.unwrap();
+				let mut output = [vec![0; 128 * 128], vec![0; 64 * 64], vec![0; 64 * 64]];
+				decoder.decode_cpu(output.each_mut().map(Vec::as_mut_slice)).unwrap();
+				assert!(output[0].iter().all(|sample| sample.abs_diff(luma) <= 2));
+			}
+			done.send(()).unwrap();
+		});
+	}
+	drop(done);
+	for _ in 0..4 {
+		finished
+			.recv_timeout(std::time::Duration::from_secs(120))
+			.expect("a thread did not finish creating, encoding and dropping its devices");
+	}
+}

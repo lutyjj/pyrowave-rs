@@ -30,8 +30,10 @@ each Rust declaration links to its native symbol. This test runs without a GPU.
 `Device`, `Encoder`, `Decoder` and `ImportedImage` expose borrowed `as_raw()`
 handles. Keep their owners alive and do not destroy borrowed handles. Run raw
 calls inside `pyrowave::with_native()` whenever wrappers are used in the same
-process. The backend shares Vulkan dispatch state across devices. The closure
-must not call wrapper methods because they acquire the same lock.
+process. `with_native()` excludes every wrapper call, as device creation and
+destruction do: creation rewrites Vulkan dispatch state shared by all devices.
+Other wrapper calls on separate devices run concurrently. The closure must not
+call wrapper methods because they acquire the same lock.
 
 Raw calls must preserve the wrapper's configured format. Finish work that uses
 borrowed resources before reusing them, and clear device command-buffer overrides

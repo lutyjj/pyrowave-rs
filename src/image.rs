@@ -30,7 +30,7 @@ impl ImportedImage {
 		};
 		// SAFETY: the caller guarantees a live image on this retained device.
 		check(
-			crate::with_native(|| unsafe {
+			crate::device::with_native_shared(|| unsafe {
 				ffi::pyrowave_image_get_image_view(
 					handle,
 					ffi::VkImageAspectFlagBits_VK_IMAGE_ASPECT_COLOR_BIT,
@@ -55,6 +55,6 @@ impl Drop for ImportedImage {
 	fn drop(&mut self) {
 		// SAFETY: the caller's encoding contract prevents in-flight use at drop;
 		// the device remains retained until after this call.
-		crate::device::with_native(|| unsafe { ffi::pyrowave_image_destroy(self.handle) });
+		crate::device::with_native_shared(|| unsafe { ffi::pyrowave_image_destroy(self.handle) });
 	}
 }

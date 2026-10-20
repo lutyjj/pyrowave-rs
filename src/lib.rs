@@ -3,8 +3,8 @@
 //! [`Device`], [`Encoder`], [`Decoder`] and imported images keep their native
 //! resources alive and stay on one thread. Successful encoding waits for readback.
 //! Applications own capture synchronization, bitrate policy and transport.
-//! [`sys`] exposes the complete native API. Use [`with_native`] to serialize
-//! raw calls with the ownership wrappers, and keep their resources alive.
+//! [`sys`] exposes the complete native API. Use [`with_native`] to run raw
+//! calls that exclude every ownership wrapper call, and keep their resources alive.
 
 mod decoder;
 mod device;

@@ -22,7 +22,7 @@ impl Decoder {
 	pub fn new(device: Device, format: VideoFormat) -> Result<Self> {
 		format.validate()?;
 		// SAFETY: the device is live; this query does not submit work.
-		let fragment_path = crate::device::with_native(|| unsafe {
+		let fragment_path = crate::device::with_native_shared(|| unsafe {
 			ffi::pyrowave_decoder_device_prefers_fragment_path(device.as_raw())
 		});
 		let info = ffi::pyrowave_decoder_create_info {
@@ -35,7 +35,7 @@ impl Decoder {
 		let mut handle = std::ptr::null_mut();
 		// SAFETY: the device and both pointers remain live for the call.
 		check(
-			crate::device::with_native(|| unsafe { ffi::pyrowave_decoder_create(&info, &mut handle) }),
+			crate::device::with_native_shared(|| unsafe { ffi::pyrowave_decoder_create(&info, &mut handle) }),
 			"creating decoder",
 		)?;
 		Ok(Self {
@@ -49,7 +49,7 @@ impl Decoder {
 	/// Discard all queued records.
 	pub fn clear(&mut self) {
 		// SAFETY: the decoder remains live and access is confined to this thread.
-		crate::device::with_native(|| unsafe { ffi::pyrowave_decoder_clear(self.handle) });
+		crate::device::with_native_shared(|| unsafe { ffi::pyrowave_decoder_clear(self.handle) });
 	}
 
 	/// Queue one native packet or an entire contiguous encoded frame.
@@ -63,7 +63,7 @@ impl Decoder {
 		self.packet_words.resize(packet.len().div_ceil(4), 0);
 		// SAFETY: the destination has packet.len() bytes, is aligned for u32 and
 		// cannot overlap the caller's input. The native parser copies queued data.
-		crate::device::with_native(|| unsafe {
+		crate::device::with_native_shared(|| unsafe {
 			std::ptr::copy_nonoverlapping(packet.as_ptr(), self.packet_words.as_mut_ptr().cast(), packet.len());
 			check(
 				ffi::pyrowave_decoder_push_packet(self.handle, self.packet_words.as_ptr().cast(), packet.len()),
@@ -74,7 +74,7 @@ impl Decoder {
 
 	pub fn is_ready(&self, allow_partial_frame: bool) -> bool {
 		// SAFETY: the decoder remains live and access is confined to this thread.
-		crate::device::with_native(|| unsafe {
+		crate::device::with_native_shared(|| unsafe {
 			ffi::pyrowave_decoder_decode_is_ready(self.handle, allow_partial_frame)
 		})
 	}
@@ -104,7 +104,7 @@ impl Decoder {
 		// SAFETY: each writable plane covers its layout, the buffers are disjoint,
 		// and the native implementation completes the readback before returning.
 		check(
-			crate::device::with_native(|| unsafe {
+			crate::device::with_native_shared(|| unsafe {
 				ffi::pyrowave_decoder_decode_cpu_buffer_synchronous(self.handle, &buffers)
 			}),
 			"decoding CPU planes",
@@ -115,6 +115,6 @@ impl Decoder {
 impl Drop for Decoder {
 	fn drop(&mut self) {
 		// SAFETY: the device remains retained until the native decoder is destroyed.
-		crate::device::with_native(|| unsafe { ffi::pyrowave_decoder_destroy(self.handle) });
+		crate::device::with_native_shared(|| unsafe { ffi::pyrowave_decoder_destroy(self.handle) });
 	}
 }

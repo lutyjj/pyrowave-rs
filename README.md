@@ -1,46 +1,34 @@
 # pyrowave-rs
 
-Thin Rust bindings to the official [PyroWave](https://github.com/Themaister/pyrowave)
-1.0 Vulkan codec, using its C++ implementation and shaders.
+Rust bindings to the official [PyroWave](https://github.com/Themaister/pyrowave)
+Vulkan codec. The crate builds upstream's C++ implementation and shaders at a pinned
+revision. The default `native-fixes` feature applies the fixes in
+[`pyrowave-sys/patches`](pyrowave-sys/patches) for upstream defects that revision still
+has; with `default-features = false`, the crate builds upstream unmodified, defects
+included.
 
-This is the optional `patches` branch. Its native fix collection lives in
-[draft PR #1](https://github.com/lutyjj/pyrowave-rs/pull/1), which stays unmerged.
-Use `main` for upstream behavior. Both branches expose the same Rust API.
-`UPSTREAM_REVISION` and `BITSTREAM_ID` name the upstream pin the patches apply to;
-the build's `VENDOR.txt` lists the applied patches.
-
-Building requires Linux, Rust 1.87+, CMake, a C++ compiler, libclang and GNU `patch`.
-Encoding and decoding require a compatible Vulkan GPU.
-Initialize the [upstream submodules](pyrowave-sys/README.md) before building.
+Building requires Linux, the Rust version in `Cargo.toml`, CMake, a C++ compiler,
+libclang, the [upstream submodules](pyrowave-sys/README.md#build-and-upstream-updates)
+and, for `native-fixes`, GNU `patch`.
+Encoding and decoding require a Vulkan GPU.
 
 ```toml
 [dependencies]
-pyrowave = { path = "../pyrowave-rs" }
+pyrowave = { git = "https://github.com/lutyjj/pyrowave-rs", rev = "<commit>" }
 ```
 
-Enable `features = ["dmabuf"]` for encoding imported GPU RGB images.
-Create images through `sys` and transfer ownership with `ImportedImage::from_raw()`.
-Run `cargo run --example roundtrip` to check encoding and decoding.
-
-Bindings for the complete C API are generated in the `pyrowave-sys` crate and
-re-exported as `pyrowave::sys`. The Rust wrappers handle synchronous encoding and
-decoding of eight-bit CPU planes, imported RGB encoding in full or narrow range,
-queue type and global priority, performance reports and upstream's bitrate model.
-Use `sys` for native frame contexts, higher precision CPU planes, GPU decoder output,
-GPU selection, inherited devices and synchronization.
+The wrappers handle synchronous encoding and decoding of eight-bit CPU planes,
+imported RGB encoding (feature `dmabuf`), queue type and global priority,
+performance reports and upstream's bitrate model. `pyrowave::sys` re-exports the
+complete C API; the [native bindings guide](pyrowave-sys/README.md) maps each upstream
+capability to its Rust access and sets the rules for mixing raw calls with wrappers.
 `Decoder::push_packet()` is unsafe: callers must supply valid upstream codec records.
-See the [API surface and native update guide](pyrowave-sys/README.md).
+`cargo run --example roundtrip` encodes and decodes one frame.
 
-Use `as_raw()` to borrow a wrapper's native handle and `with_native()` to run raw
-native calls that exclude every wrapper call. `Device::from_raw()` takes ownership of a device
-created with upstream's advanced device creation functions. Raw callers must follow
-upstream's rules for resources, configuration and GPU completion.
+`BITSTREAM_VERSION` identifies the packet format version. `UPSTREAM_REVISION` is the
+pinned upstream revision and `BITSTREAM_ID` its first eight hex digits. Both change on
+every upstream update, even when the packet format stays the same, and neither
+reflects the local patches. Verify interoperability before accepting a different
+`BITSTREAM_ID` in an existing protocol.
 
-`BITSTREAM_VERSION` identifies the frozen v1 packet format. `UPSTREAM_REVISION`
-identifies the native source revision, and `BITSTREAM_ID` is its short fingerprint.
-The fingerprint changes on every upstream update, even when the packet format
-stays the same. Verify interoperability before accepting a different implementation
-revision in an existing protocol.
-
-[MIT](LICENSE).
-Upstream submodules retain their own licenses.
+[MIT](LICENSE). Upstream submodules keep their own licenses.

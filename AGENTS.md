@@ -1,6 +1,6 @@
 # Repository rules
 
-- This library provides faithful Rust bindings to the official upstream PyroWave library. Preserve upstream behavior; do not fix upstream defects, apply native patches, or introduce behavior changes or workarounds in the bindings.
-- Exception for the `patches` branch only: it carries native fixes in `pyrowave-sys/patches/` for upstream defects that the pinned upstream revision has not fixed. Keep one commit and one patch file per fix, and drop a fix when upstream includes it.
+- This library provides faithful Rust bindings to the official upstream PyroWave library. Preserve upstream behavior; do not introduce behavior changes or workarounds in the bindings.
+- Fixes for upstream defects that the pinned revision has not fixed live in `pyrowave-sys/patches/`, one patch file and one commit per fix, applied by the default `native-fixes` feature. Offer each fix upstream and drop it when the pin includes it.
 - Use Conventional Commits.
 - Do not write code comments unless they explain a non-obvious hack, fix, or detail that is not apparent from the code.

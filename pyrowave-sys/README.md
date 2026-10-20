@@ -1,16 +1,14 @@
 # PyroWave native bindings
 
-This crate builds the official PyroWave 1.0 C++ codec and generates bindings for
-its complete C API. [`pyrowave`](../README.md) manages resource lifetimes in Rust and
-re-exports these bindings as `pyrowave::sys`.
-Use a Git checkout or path dependency; registry publishing is disabled.
+`pyrowave-sys` builds the official PyroWave C++ codec and generates bindings for
+its complete C API. [`pyrowave`](../README.md) re-exports them as `pyrowave::sys` and
+manages resource lifetimes. Depend on a Git checkout or a path; registry publishing is
+disabled.
 
 ## API surface
 
-Bindgen generates bindings from `pyrowave.h`, so the full native API is available
-even when the wrapper has no convenience method. A generated test takes the
-address of every function in upstream's `pyrowave-shared.def` and checks that
-each Rust declaration links to its native symbol. This test runs without a GPU.
+Bindgen generates the bindings from `pyrowave.h`. A generated test checks, without a
+GPU, that every function in upstream's `pyrowave-shared.def` links.
 
 | Upstream capability | Rust access |
 | --- | --- |
@@ -27,71 +25,61 @@ each Rust declaration links to its native symbol. This test runs without a GPU.
 | GPU decoder output and synchronous/asynchronous CPU output at supported depths | `sys`; `Decoder::decode_cpu()` reads eight-bit planes synchronously |
 | Per-stage timings and upstream's bitrate model | `Device::performance_report()` and `estimate_bitrate()` |
 
-`Device`, `Encoder`, `Decoder` and `ImportedImage` expose borrowed `as_raw()`
-handles. Keep their owners alive and do not destroy borrowed handles. Run raw
-calls inside `pyrowave::with_native()` whenever wrappers are used in the same
-process. `with_native()` excludes every wrapper call, as device creation and
-destruction do: creation rewrites Vulkan dispatch state shared by all devices.
-Other wrapper calls on separate devices run concurrently. The closure must not call wrapper
-methods because they acquire the same lock.
+`Device`, `Encoder`, `Decoder` and `ImportedImage` lend their native handles through
+`as_raw()`. Keep the owner alive and do not destroy a borrowed handle. When a process
+mixes raw calls with wrappers, run the raw calls inside `pyrowave::with_native()`. It
+excludes every wrapper call, as device creation and destruction do, because creation
+rewrites Vulkan dispatch state shared by all devices. Wrapper calls on separate
+devices otherwise run concurrently. The closure must not call wrapper methods, which
+take the same lock.
 
-Raw calls must preserve the wrapper's configured format. Finish work that uses
-borrowed resources before reusing them, and clear device command-buffer overrides
-before returning to wrapper methods. Your application owns any Vulkan handles
-inherited by a native device. Keep those handles alive until all wrappers using
-that device have dropped.
+Raw calls must keep the wrapper's configured format, finish GPU work on borrowed
+resources before reusing them, and clear device command-buffer overrides before
+returning to wrapper methods. The application owns any Vulkan handles that a native
+device inherits and keeps them alive until every wrapper using that device has dropped.
 
 ## Build and upstream updates
 
-`upstream/pyrowave` and `upstream/Granite` are pinned Git submodules. Initialize
-those and the two required Granite dependencies from the repository root:
+`upstream/pyrowave` and `upstream/Granite` are pinned submodules. From the repository
+root, initialize them and the two Granite dependencies the build uses:
 
 ```sh
 git submodule update --init pyrowave-sys/upstream/pyrowave pyrowave-sys/upstream/Granite
 git -C pyrowave-sys/upstream/Granite submodule update --init third_party/volk third_party/khronos/vulkan-headers
 ```
 
-CMake applies the optional native candidates in `patches/` to a build copy.
-The upstream submodules stay unmodified. Each candidate is a separate commit
-on this branch and can be dropped when the upstream pin includes its fix.
-After initialization, the native build needs no network. Building requires
-CMake, a C++ compiler, libclang and GNU `patch`.
-Exported or vendored sources can build without Git metadata.
+After that the build needs no network. Exported or vendored sources build without Git
+metadata.
 
-`UPSTREAM_REVISIONS` records the source pins used for the generated vendor
-manifest, `UPSTREAM_REVISION` and `BITSTREAM_ID`. Builds from Git checkouts verify
-those pins against the submodules. For an upstream refresh, change the submodule
-Git links and `UPSTREAM_REVISIONS` together, then validate the build. Preserve all
-upstream license notices.
+CMake copies the upstream sources into the build directory. With the default
+`native-fixes` feature (CMake option `PYROWAVE_NATIVE_FIXES`), it applies
+`patches/*.patch` to that copy in file-name order; the submodules stay unmodified. Each
+patch fixes one upstream defect, names it in its header and has its own commit. The build fails
+when a patch does not apply, including when upstream already contains the fix. The
+build's `vendor/pyrowave/VENDOR.txt` lists the pins and the applied patches.
+
+`UPSTREAM_REVISIONS` lists the pins, and builds from a Git checkout fail when the
+submodules differ from it. To refresh upstream, update the submodules and
+`UPSTREAM_REVISIONS` together, drop the patches the new pin includes, and run the
+validation below. Preserve upstream license notices.
 
 `quality.c` exposes upstream's bitrate model, a static function in
-`eval-results/pyrowave_regression_results.h`.
+`eval-results/pyrowave_regression_results.h`. Upstream documents the bitstream in
+`upstream/pyrowave/bitstream/bitstream.md` and the C API in `upstream/pyrowave/pyrowave.h`.
 
-See the [upstream bitstream specification](https://github.com/Themaister/pyrowave/blob/21f099d24df0ab0e4c10c3288c924b6b1717e581/bitstream/bitstream.md)
-and [C API](https://github.com/Themaister/pyrowave/blob/21f099d24df0ab0e4c10c3288c924b6b1717e581/pyrowave.h).
-API, wrapper, build and native export checks must pass after each refresh.
-GPU roundtrips and interop tests establish runtime behavior on the tested driver;
-a successful build alone does not establish that behavior or upstream performance.
+## Validation
 
-## Container build
+After initializing the submodules, `docker build -t pyrowave-rs-build .` from the
+repository root compiles both crates and the native test tools and runs the tests that
+need no GPU.
 
-After initializing submodules, run `docker build -t pyrowave-rs-build .` from the
-repository root. The image compiles both crates and native test tools, and runs
-the tests that do not require a GPU. Sources and build outputs stay in the image.
-
-## Native validation
-
-From the repository root, build the official tools against the same native
-sources as the Rust crate:
+On a Vulkan GPU, build upstream's tools from the same sources as the crate and run them
+with the GPU tests. Add `-DPYROWAVE_NATIVE_FIXES=OFF` to the first command to build them
+from unmodified upstream.
 
 ```sh
 cmake -S pyrowave-sys -B target/native-tools -DCMAKE_BUILD_TYPE=Release
 cmake --build target/native-tools --target pyrowave-c-test pyrowave-c-interop-test pyrowave-device-validation pyrowave-decode --parallel 8
-```
-
-On a compatible Vulkan GPU, run:
-
-```sh
 cargo test --workspace --all-features -- --ignored --nocapture
 target/native-tools/pyrowave-c-test
 target/native-tools/pyrowave-c-interop-test
@@ -99,10 +87,6 @@ target/native-tools/pyrowave-device-validation --roundtrip
 target/native-tools/pyrowave-decode capture.pyrowave capture.y4m
 ```
 
-The upstream C test checks 4K roundtrips, rate budgets and decoded image quality.
-It covers both chroma layouts, higher precision CPU planes, frame contexts,
-asynchronous readback, partial-frame readiness and invalid arguments. The interop
-test exercises shared Vulkan devices, imported resources and synchronization.
-
-The decoder accepts upstream's versioned `PWV1` disk container. Verify output
-frame count and dimensions: malformed input can still return success.
+Only these GPU runs check runtime behavior, and only on the driver they ran on.
+`pyrowave-decode` reads upstream's `PWV1` container and can return success on
+malformed input, so check its frame count and dimensions.

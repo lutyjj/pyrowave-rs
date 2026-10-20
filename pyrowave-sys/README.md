@@ -16,7 +16,7 @@ each Rust declaration links to its native symbol. This test runs without a GPU.
 | --- | --- |
 | API version | `api_version()` or `sys` |
 | Default device and performance reports | `Device` |
-| GPU selection, inherited devices, queue priority, queue type and command buffers | `sys`; adopt an owned native device with `Device::from_raw()` |
+| GPU selection, inherited devices, queue priority, queue type and command buffers | `sys`; `Device::with_global_priority()` and `Device::set_queue_type()` cover the default GPU; adopt an owned native device with `Device::from_raw()` |
 | External semaphore import/export, CPU waits/signals and GPU synchronization | `sys` |
 | External images and image views | `sys`; `ImportedImage::from_raw()` owns an imported native image |
 | Planar CPU input, including NV12 and 8-, 10- and 16-bit samples | `sys`; `Encoder::encode_cpu()` handles eight-bit planar input |

@@ -4,10 +4,39 @@ use std::sync::{PoisonError, RwLock};
 
 use pyrowave_sys as ffi;
 
-use crate::Result;
 use crate::error::check;
+use crate::{Error, Result};
 
-/// A private Vulkan device using upstream's default graphics queue.
+/// Queue family the device submits encode and decode work to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QueueType {
+	Graphics,
+	/// Async compute, which upstream suggests for encoding outside the producing
+	/// process because the graphics queue may become busy. Upstream uses the
+	/// graphics queue when the device has no async compute queue.
+	Compute,
+}
+
+/// Vulkan global priority of the device's compute queue, from the levels
+/// upstream requests: `Medium` by default, `High` or `Realtime` on request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GlobalPriority {
+	Medium,
+	High,
+	Realtime,
+}
+
+impl GlobalPriority {
+	fn native(self) -> ffi::VkQueueGlobalPriority {
+		match self {
+			Self::Medium => ffi::VkQueueGlobalPriority_VK_QUEUE_GLOBAL_PRIORITY_MEDIUM,
+			Self::High => ffi::VkQueueGlobalPriority_VK_QUEUE_GLOBAL_PRIORITY_HIGH,
+			Self::Realtime => ffi::VkQueueGlobalPriority_VK_QUEUE_GLOBAL_PRIORITY_REALTIME,
+		}
+	}
+}
+
+/// A private Vulkan device.
 ///
 /// Clones share ownership. Codecs and images retain the device until they drop.
 /// This type is neither `Send` nor `Sync`: the native device needs external
@@ -25,6 +54,7 @@ pub(crate) struct DeviceInner {
 }
 
 impl Device {
+	/// Create upstream's default device: the graphics queue at medium priority.
 	pub fn new() -> Result<Self> {
 		let mut handle = std::ptr::null_mut();
 		// SAFETY: the output pointer is live for the call.
@@ -35,6 +65,59 @@ impl Device {
 		Ok(Self {
 			inner: Rc::new(DeviceInner { handle }),
 		})
+	}
+
+	/// Create the default device, requesting a global priority for its compute queue.
+	///
+	/// `High` and `Realtime` also select [`QueueType::Compute`]. Upstream falls
+	/// back towards `Medium` when the system refuses a level: on Linux, levels
+	/// above `Medium` need root or `CAP_SYS_NICE`. [`Self::global_priority`]
+	/// reports the granted level.
+	pub fn with_global_priority(priority: GlobalPriority) -> Result<Self> {
+		let mut handle = std::ptr::null_mut();
+		// SAFETY: null identifiers select the default GPU; the output pointer is live.
+		check(
+			with_native(|| unsafe {
+				ffi::pyrowave_create_device_by_compat(
+					0,
+					0,
+					std::ptr::null(),
+					std::ptr::null(),
+					std::ptr::null(),
+					priority.native(),
+					&mut handle,
+				)
+			}),
+			"creating device",
+		)?;
+		Ok(Self {
+			inner: Rc::new(DeviceInner { handle }),
+		})
+	}
+
+	/// Global priority granted to the compute queue.
+	pub fn global_priority(&self) -> Result<GlobalPriority> {
+		// SAFETY: the device is live; this query does not submit work.
+		let priority = with_native_shared(|| unsafe { ffi::pyrowave_device_get_global_priority(self.as_raw()) });
+		[GlobalPriority::Medium, GlobalPriority::High, GlobalPriority::Realtime]
+			.into_iter()
+			.find(|level| level.native() == priority)
+			.ok_or(Error::InvalidOutput(
+				"native device reported an unknown global priority",
+			))
+	}
+
+	/// Select the queue family for subsequent encode and decode submissions.
+	pub fn set_queue_type(&self, queue: QueueType) -> Result<()> {
+		let flags = match queue {
+			QueueType::Graphics => ffi::VkQueueFlagBits_VK_QUEUE_GRAPHICS_BIT,
+			QueueType::Compute => ffi::VkQueueFlagBits_VK_QUEUE_COMPUTE_BIT,
+		};
+		// SAFETY: the device is live and confined to this thread.
+		check(
+			with_native_shared(|| unsafe { ffi::pyrowave_device_set_queue_type(self.as_raw(), flags) }),
+			"selecting queue type",
+		)
 	}
 
 	/// GPU time per codec stage and memory heap budgets, one line each.

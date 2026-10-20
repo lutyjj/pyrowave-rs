@@ -1,4 +1,4 @@
-use pyrowave::{ChromaSampling, Decoder, Device, Encoder, VideoFormat, sys, with_native};
+use pyrowave::{ChromaSampling, Decoder, Device, Encoder, GlobalPriority, QueueType, VideoFormat, sys, with_native};
 
 #[test]
 #[ignore = "requires a compatible Vulkan GPU"]
@@ -116,6 +116,35 @@ fn cpu_budget_results_match_upstream() {
 
 #[test]
 #[ignore = "requires a compatible Vulkan GPU"]
+fn priority_devices_grant_up_to_the_request_and_encode_after_selecting_compute() {
+	let format = VideoFormat {
+		width: 128,
+		height: 128,
+		chroma: ChromaSampling::Yuv420,
+	};
+	for requested in [GlobalPriority::Medium, GlobalPriority::Realtime] {
+		let device = Device::with_global_priority(requested).unwrap();
+		let granted = device.global_priority().unwrap();
+		assert!(granted <= requested, "requested {requested:?}, granted {granted:?}");
+		if requested == GlobalPriority::Medium {
+			assert_eq!(granted, GlobalPriority::Medium);
+		}
+		device.set_queue_type(QueueType::Compute).unwrap();
+		let mut encoder = Encoder::new(device.clone(), format).unwrap();
+		let mut decoder = Decoder::new(device, format).unwrap();
+		let input = [vec![160u8; 128 * 128], vec![128; 64 * 64], vec![128; 64 * 64]];
+		let encoded = encoder.encode_cpu(input.each_ref().map(Vec::as_slice), 32768).unwrap();
+		// SAFETY: the records came from the linked encoder with the same format.
+		unsafe { decoder.push_packet(encoded) }.unwrap();
+		assert!(decoder.is_ready(false));
+		let mut output = [vec![0; 128 * 128], vec![0; 64 * 64], vec![0; 64 * 64]];
+		decoder.decode_cpu(output.each_mut().map(Vec::as_mut_slice)).unwrap();
+		assert!(output[0].iter().all(|sample| sample.abs_diff(160) <= 2));
+	}
+}
+
+#[test]
+#[ignore = "requires a compatible Vulkan GPU"]
 fn devices_on_separate_threads_create_encode_and_drop_concurrently() {
 	let format = VideoFormat {
 		width: 128,
@@ -128,8 +157,12 @@ fn devices_on_separate_threads_create_encode_and_drop_concurrently() {
 	for thread in 0..4 {
 		let done = done.clone();
 		std::thread::spawn(move || {
-			for _ in 0..8 {
-				let device = Device::new().unwrap();
+			for round in 0..8 {
+				let device = if (thread + round) % 2 == 0 {
+					Device::new().unwrap()
+				} else {
+					Device::with_global_priority(GlobalPriority::Realtime).unwrap()
+				};
 				let mut encoder = Encoder::new(device.clone(), format).unwrap();
 				let mut decoder = Decoder::new(device, format).unwrap();
 				let luma = 40 + 20 * thread as u8;

@@ -16,8 +16,7 @@ mod image;
 mod quality;
 
 pub use decoder::Decoder;
-pub use device::Device;
-pub use device::with_native;
+pub use device::{Device, GlobalPriority, QueueType, with_native};
 pub use encoder::{Encoder, InputColorSpace, IntermediatePrecision, OutputColorSpace, ScaleConfig};
 pub use error::{Error, Result};
 pub use format::{ChromaSampling, VideoFormat};

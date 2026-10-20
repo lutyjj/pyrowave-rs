@@ -1,5 +1,5 @@
 //! Build the pinned PyroWave C API as static archives through CMake and generate
-//! Rust bindings for it. CMake applies this branch's native patches to a build copy.
+//! Rust bindings for it. With `native-fixes`, CMake applies `patches/` to a build copy.
 //!
 //! Everything compiles from initialized submodules, including Vulkan headers, so
 //! the build needs no network and no system PyroWave; bindgen needs a libclang.
@@ -54,9 +54,11 @@ fn main() {
 		"this native build supports Linux"
 	);
 
+	let native_fixes = if cfg!(feature = "native-fixes") { "ON" } else { "OFF" };
 	// Always Release: the hot path is GPU shaders, a debug host build buys nothing.
 	let dst = cmake::Config::new(&manifest_dir)
 		.profile("Release")
+		.define("PYROWAVE_NATIVE_FIXES", native_fixes)
 		.build_target("pyrowave-capi")
 		.build();
 	let build = dst.join("build");

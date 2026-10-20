@@ -21,9 +21,10 @@ rust-version.workspace = true
 publish = false
 
 [features]
-default = []
+default = ["native-fixes"]
 dmabuf = []
+native-fixes = ["pyrowave-sys/native-fixes"]
 
 [dependencies]
-pyrowave-sys = { version = "0.1.0", path = "pyrowave-sys" }
+pyrowave-sys = { version = "0.1.0", path = "pyrowave-sys", default-features = false }
 thiserror = "2.0"

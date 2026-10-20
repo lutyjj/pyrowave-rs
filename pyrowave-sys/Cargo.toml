@@ -9,6 +9,10 @@ rust-version.workspace = true
 publish = false
 links = "pyrowave"
 
+[features]
+default = ["native-fixes"]
+native-fixes = []
+
 [build-dependencies]
 cmake = "0.1"
 bindgen = { version = "0.73", features = ["runtime"], default-features = false }

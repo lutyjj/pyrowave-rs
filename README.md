@@ -18,10 +18,10 @@ Run `cargo run --example roundtrip` to check encoding and decoding.
 
 Bindings for the complete C API are generated in the `pyrowave-sys` crate and
 re-exported as `pyrowave::sys`. The Rust wrappers handle synchronous encoding and
-decoding of eight-bit CPU planes, imported RGB encoding, queue type and global
-priority, performance reports and upstream's bitrate model. Use `sys` for native
-frame contexts, higher precision CPU planes, GPU decoder output, GPU selection,
-inherited devices and synchronization.
+decoding of eight-bit CPU planes, imported RGB encoding in full or narrow range,
+queue type and global priority, performance reports and upstream's bitrate model.
+Use `sys` for native frame contexts, higher precision CPU planes, GPU decoder output,
+GPU selection, inherited devices and synchronization.
 `Decoder::push_packet()` is unsafe: callers must supply valid upstream codec records.
 See the [API surface and native update guide](pyrowave-sys/README.md).
 

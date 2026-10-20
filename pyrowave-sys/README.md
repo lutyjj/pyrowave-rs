@@ -20,7 +20,7 @@ each Rust declaration links to its native symbol. This test runs without a GPU.
 | External semaphore import/export, CPU waits/signals and GPU synchronization | `sys` |
 | External images and image views | `sys`; `ImportedImage::from_raw()` owns an imported native image |
 | Planar CPU input, including NV12 and 8-, 10- and 16-bit samples | `sys`; `Encoder::encode_cpu()` handles eight-bit planar input |
-| GPU planes, RGB conversion, scaling, crop, dither and full/narrow YCbCr range | `sys`; `Encoder::encode_image()` handles imported RGB with full-range output |
+| GPU planes, RGB conversion, scaling, crop, dither and full/narrow YCbCr range | `sys`; `Encoder::encode_image()` handles imported RGB in full or narrow range with an explicit chroma midpoint |
 | Frame contexts and asynchronous readback | `sys` |
 | Packet boundaries, padding, critical packets, active blocks and mapped bitstreams | `sys`; the wrapper returns one contiguous frame and counts active blocks |
 | Packet ingestion, readiness and partial frames with sideband information | `sys`; `Decoder` handles ingestion and readiness |
@@ -32,8 +32,8 @@ handles. Keep their owners alive and do not destroy borrowed handles. Run raw
 calls inside `pyrowave::with_native()` whenever wrappers are used in the same
 process. `with_native()` excludes every wrapper call, as device creation and
 destruction do: creation rewrites Vulkan dispatch state shared by all devices.
-Other wrapper calls on separate devices run concurrently. The closure must not
-call wrapper methods because they acquire the same lock.
+Other wrapper calls on separate devices run concurrently. The closure must not call wrapper
+methods because they acquire the same lock.
 
 Raw calls must preserve the wrapper's configured format. Finish work that uses
 borrowed resources before reusing them, and clear device command-buffer overrides

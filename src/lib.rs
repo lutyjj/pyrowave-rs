@@ -17,7 +17,7 @@ mod quality;
 
 pub use decoder::Decoder;
 pub use device::{Device, GlobalPriority, QueueType, with_native};
-pub use encoder::{Encoder, InputColorSpace, IntermediatePrecision, OutputColorSpace, ScaleConfig};
+pub use encoder::{Encoder, InputColorSpace, IntermediatePrecision, OutputColorSpace, ScaleConfig, YcbcrRange};
 pub use error::{Error, Result};
 pub use format::{ChromaSampling, VideoFormat};
 #[cfg(all(feature = "dmabuf", target_os = "linux"))]

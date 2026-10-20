@@ -24,18 +24,65 @@ pub enum OutputColorSpace {
 	Hdr10,
 }
 
+/// YCbCr range of the encoded planes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum YcbcrRange {
+	Full,
+	/// H.273 narrow range using the code values of `bit_depth`, from 8 to 16
+	/// (for example 16 to 235 luma at eight bits).
+	Narrow {
+		bit_depth: u32,
+	},
+}
+
 /// RGB conversion performed by the native GPU scaler.
 ///
-/// Output is full-range YCbCr: BT.709 for SDR, BT.2020/PQ for HDR10. The
-/// scaler uses eight- or sixteen-bit UNORM intermediate planes. This controls
-/// conversion precision; PyroWave has no fixed encoded bit depth.
+/// Output is YCbCr in BT.709 for SDR and BT.2020/PQ for HDR10. The scaler uses
+/// eight- or sixteen-bit UNORM intermediate planes. This controls conversion
+/// precision; PyroWave has no fixed encoded bit depth.
 #[derive(Clone, Copy, Debug)]
 pub struct ScaleConfig {
 	pub input_color_space: InputColorSpace,
 	pub output_color_space: OutputColorSpace,
-	/// Unorm8 centers Cb/Cr at 128/255; Unorm16 centers them at 0.5.
-	/// GPU decoder consumers must use the same chroma midpoint.
 	pub intermediate_precision: IntermediatePrecision,
+	/// Normalized value of neutral chroma. The bitstream does not signal it, so
+	/// the decoder's consumer must use the same value: commonly 0.5, 128/255 for
+	/// eight-bit or 512/1023 for ten-bit YCbCr. Narrow range is normalized the
+	/// same way, so pick the midpoint of its bit depth.
+	pub chroma_midpoint: f32,
+	pub range: YcbcrRange,
+}
+
+#[cfg(all(feature = "dmabuf", target_os = "linux"))]
+impl ScaleConfig {
+	fn native(&self, view: ffi::pyrowave_image_view) -> ffi::pyrowave_scaled_encode_info {
+		let (ycbcr_range, ycbcr_range_bit_depth) = match self.range {
+			YcbcrRange::Full => (ffi::VkSamplerYcbcrRange_VK_SAMPLER_YCBCR_RANGE_ITU_FULL, 0),
+			YcbcrRange::Narrow { bit_depth } => (ffi::VkSamplerYcbcrRange_VK_SAMPLER_YCBCR_RANGE_ITU_NARROW, bit_depth),
+		};
+		ffi::pyrowave_scaled_encode_info {
+			view,
+			input_color_space: match self.input_color_space {
+				InputColorSpace::Srgb => ffi::VkColorSpaceKHR_VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
+				InputColorSpace::Hdr10 => ffi::VkColorSpaceKHR_VK_COLOR_SPACE_HDR10_ST2084_EXT,
+				InputColorSpace::ScrgbLinear => ffi::VkColorSpaceKHR_VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT,
+			},
+			output_color_space: match self.output_color_space {
+				OutputColorSpace::Srgb => ffi::VkColorSpaceKHR_VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
+				OutputColorSpace::Hdr10 => ffi::VkColorSpaceKHR_VK_COLOR_SPACE_HDR10_ST2084_EXT,
+			},
+			intermediate_plane_format: match self.intermediate_precision {
+				IntermediatePrecision::Unorm8 => ffi::VkFormat_VK_FORMAT_R8_UNORM,
+				IntermediatePrecision::Unorm16 => ffi::VkFormat_VK_FORMAT_R16_UNORM,
+			},
+			ycbcr_chroma_midpoint: self.chroma_midpoint,
+			force_linear_filtering: false,
+			skip_dither: false,
+			crop_rect: std::ptr::null(),
+			ycbcr_range,
+			ycbcr_range_bit_depth,
+		}
+	}
 }
 
 /// An encoder retaining its device and reusing its output allocation.
@@ -157,31 +204,7 @@ impl Encoder {
 		let rate = ffi::pyrowave_rate_control {
 			maximum_bitstream_size: maximum_bytes,
 		};
-		let scaling = ffi::pyrowave_scaled_encode_info {
-			view: image.view,
-			input_color_space: match scale.input_color_space {
-				InputColorSpace::Srgb => ffi::VkColorSpaceKHR_VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
-				InputColorSpace::Hdr10 => ffi::VkColorSpaceKHR_VK_COLOR_SPACE_HDR10_ST2084_EXT,
-				InputColorSpace::ScrgbLinear => ffi::VkColorSpaceKHR_VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT,
-			},
-			output_color_space: match scale.output_color_space {
-				OutputColorSpace::Srgb => ffi::VkColorSpaceKHR_VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
-				OutputColorSpace::Hdr10 => ffi::VkColorSpaceKHR_VK_COLOR_SPACE_HDR10_ST2084_EXT,
-			},
-			intermediate_plane_format: match scale.intermediate_precision {
-				IntermediatePrecision::Unorm8 => ffi::VkFormat_VK_FORMAT_R8_UNORM,
-				IntermediatePrecision::Unorm16 => ffi::VkFormat_VK_FORMAT_R16_UNORM,
-			},
-			ycbcr_chroma_midpoint: match scale.intermediate_precision {
-				IntermediatePrecision::Unorm8 => 128.0 / 255.0,
-				IntermediatePrecision::Unorm16 => 0.5,
-			},
-			force_linear_filtering: false,
-			skip_dither: false,
-			crop_rect: std::ptr::null(),
-			ycbcr_range: ffi::VkSamplerYcbcrRange_VK_SAMPLER_YCBCR_RANGE_ITU_FULL,
-			ycbcr_range_bit_depth: 0,
-		};
+		let scaling = scale.native(image.view);
 		let reference = ffi::pyrowave_gpu_external_reference {
 			image: image.handle,
 			queue_family_index: ffi::VK_QUEUE_FAMILY_EXTERNAL as u32,
@@ -274,5 +297,41 @@ impl Drop for Encoder {
 	fn drop(&mut self) {
 		// SAFETY: the device is retained until after the native encoder is destroyed.
 		crate::device::with_native_shared(|| unsafe { ffi::pyrowave_encoder_destroy(self.handle) });
+	}
+}
+
+#[cfg(all(test, feature = "dmabuf", target_os = "linux"))]
+mod tests {
+	use super::*;
+
+	fn config(range: YcbcrRange, chroma_midpoint: f32) -> ScaleConfig {
+		ScaleConfig {
+			input_color_space: InputColorSpace::Srgb,
+			output_color_space: OutputColorSpace::Hdr10,
+			intermediate_precision: IntermediatePrecision::Unorm16,
+			chroma_midpoint,
+			range,
+		}
+	}
+
+	#[test]
+	fn full_range_requests_no_narrow_bit_depth() {
+		let info = config(YcbcrRange::Full, 0.5).native(Default::default());
+		assert_eq!(
+			info.ycbcr_range,
+			ffi::VkSamplerYcbcrRange_VK_SAMPLER_YCBCR_RANGE_ITU_FULL
+		);
+		assert_eq!(info.ycbcr_range_bit_depth, 0);
+	}
+
+	#[test]
+	fn narrow_range_carries_its_bit_depth_and_midpoint() {
+		let info = config(YcbcrRange::Narrow { bit_depth: 10 }, 512.0 / 1023.0).native(Default::default());
+		assert_eq!(
+			info.ycbcr_range,
+			ffi::VkSamplerYcbcrRange_VK_SAMPLER_YCBCR_RANGE_ITU_NARROW
+		);
+		assert_eq!(info.ycbcr_range_bit_depth, 10);
+		assert_eq!(info.ycbcr_chroma_midpoint, 512.0 / 1023.0);
 	}
 }
